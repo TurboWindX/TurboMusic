@@ -43,28 +43,44 @@ export function guessChord(weights: number[], bassPc: number | null, preferFlats
  * disagree. Bars without notes repeat the previous chord ("%").
  */
 export function detectChordChart(notes: TabNote[], totalBars: number, beatsPerBar: number, capo = 0): string {
-  const byBar: TabNote[][] = Array.from({ length: totalBars }, () => []);
-  notes.forEach((n) => { if (n.bar < totalBars) byBar[n.bar].push(n); });
+  return detectChordChartFromPitches(
+    notes.map((n) => ({ beat: n.bar * beatsPerBar + (n.beat - Math.floor(n.beat / beatsPerBar) * beatsPerBar), duration: n.duration, midi: STANDARD_TUNING[n.string] + n.fret + capo })),
+    totalBars,
+    beatsPerBar,
+  );
+}
 
-  const profile = (ns: TabNote[]) => {
+export interface PitchEvent { beat: number; duration: number; midi: number }
+
+/**
+ * One chord per bar from sounding pitches; splits a bar in half when the two
+ * halves clearly disagree. Bars without notes repeat the previous chord ("%").
+ */
+export function detectChordChartFromPitches(notes: PitchEvent[], totalBars: number, beatsPerBar: number): string {
+  const byBar: PitchEvent[][] = Array.from({ length: totalBars }, () => []);
+  notes.forEach((n) => {
+    const bar = Math.floor(n.beat / beatsPerBar + 1e-6);
+    if (bar >= 0 && bar < totalBars) byBar[bar].push(n);
+  });
+
+  const profile = (ns: PitchEvent[]) => {
     const w = new Array(12).fill(0);
     let bass: number | null = null, bassMidi = Infinity;
     for (const n of ns) {
-      const midi = STANDARD_TUNING[n.string] + n.fret + capo;
-      // Longer + lower notes matter more (bass defines harmony in fingerstyle).
-      w[midi % 12] += Math.min(n.duration, 2) * (midi < 55 ? 1.5 : 1);
-      if (midi < bassMidi) { bassMidi = midi; bass = midi % 12; }
+      // Longer + lower notes matter more (the bass defines the harmony).
+      w[n.midi % 12] += Math.min(n.duration, 2) * (n.midi < 55 ? 1.5 : 1);
+      if (n.midi < bassMidi) { bassMidi = n.midi; bass = n.midi % 12; }
     }
     return { w, bass };
   };
 
   const bars: string[] = [];
   let prev: string | null = null;
-  byBar.forEach((ns) => {
+  byBar.forEach((ns, barIdx) => {
     if (!ns.length) { bars.push(prev ? '%' : 'N.C.'); return; }
     const whole = profile(ns);
     const g = guessChord(whole.w, whole.bass);
-    const barStart = ns[0].bar * beatsPerBar;
+    const barStart = barIdx * beatsPerBar;
     const half = beatsPerBar / 2;
     const first = ns.filter((n) => n.beat - barStart < half);
     const second = ns.filter((n) => n.beat - barStart >= half);

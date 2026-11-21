@@ -29,7 +29,8 @@ export function buildArrangement(song: Song): Arrangement {
   const tab = parseTab(song.tab, bpb, Math.max(1, song.tabGrid));
   const offsetBars = Math.max(0, (song.melodyStartBar || 1) - 1);
   const melody = tab.notes.map((n) => ({ ...n, beat: n.beat + offsetBars * bpb, bar: n.bar + offsetBars }));
-  const totalBars = Math.max(1, chart.bars, tab.bars ? tab.bars + offsetBars : 0);
+  const pianoEnd = song.piano?.notes.length ? Math.max(...song.piano.notes.map((n) => n.beat + n.duration)) : 0;
+  const totalBars = Math.max(1, chart.bars, tab.bars ? tab.bars + offsetBars : 0, Math.ceil(pianoEnd / bpb - 1e-6));
 
   const warnings = [...chart.warnings, ...tab.warnings];
   if (chart.bars && tab.bars && chart.bars !== tab.bars + offsetBars) {

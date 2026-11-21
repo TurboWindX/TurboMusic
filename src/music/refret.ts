@@ -27,7 +27,7 @@ export function transposeMelody(notes: TabNote[], semitones: number): TabNote[] 
     for (const n of group) {
       let midi = pitch(n) + semitones;
       while (midi < LOWEST) midi += 12; // below the guitar's range: up an octave
-      const placed = place(midi, n, prev, used);
+      const placed = place(midi, n.string, prev, used);
       used.add(placed.string);
       out.push({ ...n, string: placed.string, fret: placed.fret });
       prev = placed;
@@ -41,14 +41,14 @@ function pitch(n: TabNote) {
   return STANDARD_TUNING[n.string] + n.fret;
 }
 
-function place(midi: number, orig: TabNote, prev: { string: number; fret: number } | null, used: Set<number>) {
+function place(midi: number, origString: number, prev: { string: number; fret: number } | null, used: Set<number>) {
   let best: { string: number; fret: number; cost: number } | null = null;
   for (let s = 0; s < 6; s++) {
     if (used.has(s)) continue;
     const fret = midi - STANDARD_TUNING[s];
     if (fret < 0 || fret > MAX_FRET) continue;
     let cost = fret * 0.45 + (fret > 5 ? (fret - 5) * 0.6 : 0); // strongly prefer open/low positions for a learner
-    if (s === orig.string) cost -= 0.3; // mild preference for the original string
+    if (s === origString) cost -= 0.3; // mild preference for the original string
     if (prev) cost += Math.abs(fret - prev.fret) * 0.25 + Math.abs(s - prev.string) * 0.2;
     if (!best || cost < best.cost) best = { string: s, fret, cost };
   }
@@ -56,4 +56,16 @@ function place(midi: number, orig: TabNote, prev: { string: number; fret: number
   // Everything taken or out of range: fall back to the highest string, clamped.
   const s = 5;
   return { string: s, fret: Math.max(0, Math.min(24, midi - STANDARD_TUNING[s])) };
+}
+
+/** Finger a single-note line of sounding pitches (e.g. a melody from sheet music) in low positions. */
+export function fingerLine(midis: number[]): { string: number; fret: number }[] {
+  let prev: { string: number; fret: number } | null = null;
+  return midis.map((m) => {
+    let midi = m;
+    while (midi < LOWEST) midi += 12;
+    const p = place(midi, -1, prev, new Set());
+    prev = p;
+    return { string: p.string, fret: p.fret };
+  });
 }

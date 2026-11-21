@@ -1,6 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { SONG_DEFAULTS, type Song } from '../../shared/types';
 import { api, type ImportResult } from '../api';
+import { ImportSheetDialog } from '../components/ImportSheetDialog';
+import type { SongFromSheet } from '../import/sheet';
 import { buildArrangement } from '../music/arrangement';
 import { parseTab } from '../music/tabParser';
 import { detectChordChart } from '../music/detectChords';
@@ -114,6 +116,34 @@ function Editor({ initial }: { initial: Omit<Song, 'id'> & { id?: string } }) {
     setStatus('Original tab restored ✓');
   };
 
+  // --- sheet music (MIDI / MusicXML / PDF)
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [claude, setClaude] = useState(false);
+  useEffect(() => { api.config().then((c) => setClaude(c.claude)).catch(() => {}); }, []);
+  const importSheet = async (s: SongFromSheet, { replaceGuitar }: { replaceGuitar: boolean }) => {
+    setSheetOpen(false);
+    const untitled = !song.title.trim() || song.title === 'Untitled';
+    try {
+      await persist({
+        ...song,
+        title: untitled ? s.title : song.title,
+        artist: song.artist?.trim() ? song.artist : s.artist,
+        piano: s.piano,
+        bpm: s.bpm,
+        beatsPerBar: s.beatsPerBar,
+        ...(replaceGuitar ? { tab: s.tab, chordChart: s.chordChart, tabGrid: s.tabGrid, capo: 0, melodyStartBar: 1, originalTab: undefined } : {}),
+        notes: `Piano part imported from ${s.piano.source}.${replaceGuitar ? ' Guitar lead and chords were made from it.' : ''}`,
+      });
+      setStatus(`Sheet music imported ✓ ${s.piano.notes.length} piano notes`);
+    } catch (e) {
+      setStatus(`Import failed: ${(e as Error).message}`);
+    }
+  };
+  const removePiano = async () => {
+    await persist({ ...song, piano: undefined });
+    setStatus('Piano part removed: the piano view now follows the tab and chords again');
+  };
+
   // --- one-click import from a tab page
   const [importUrl, setImportUrl] = useState(() =>
     initial.tab.trim() ? '' : (/https:\/\/\S*ultimate-guitar\.com\/tab\/\S+/.exec(initial.notes ?? '')?.[0] ?? ''),
@@ -179,7 +209,26 @@ function Editor({ initial }: { initial: Omit<Song, 'id'> & { id?: string } }) {
             </button>
           </div>
         </label>
+        <div className="sheet-row">
+          <span className="muted">Or bring in sheet music: MIDI, MusicXML, or a PDF / photos of the score.</span>
+          <button className="btn" onClick={() => setSheetOpen(true)}>🎼 Import sheet music</button>
+        </div>
+        {song.piano && (
+          <div className="sheet-row piano-info">
+            <span>🎹 <b>Piano part</b> from {song.piano.source} · {song.piano.notes.length} notes
+              ({song.piano.notes.filter((n) => n.hand === 'right').length} right hand, {song.piano.notes.filter((n) => n.hand === 'left').length} left)</span>
+            <button className="btn ghost small" onClick={() => void removePiano()}>Remove piano part</button>
+          </div>
+        )}
       </section>
+      {sheetOpen && (
+        <ImportSheetDialog
+          claude={claude}
+          hasGuitarParts={!!(song.tab.trim() || hasChordChart(song.chordChart))}
+          onImport={(s, o) => void importSheet(s, o)}
+          onClose={() => setSheetOpen(false)}
+        />
+      )}
 
       {(song.tab.trim() || song.originalTab) && (
         <section className="import-box arrange-box">

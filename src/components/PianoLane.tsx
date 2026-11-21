@@ -56,6 +56,20 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
     return t;
   }, [shown, s.pianoAnyOctave]);
 
+  /** Left-hand notes that start a new chord get its name drawn next to them. */
+  const labelAt = useMemo(() => {
+    const out = new Set<number>();
+    let last: string | undefined;
+    tracker.notes.forEach((n, i) => {
+      if (n.hand !== 'left' || !n.chord) return;
+      if (n.chord !== last && (i === 0 || tracker.notes[i - 1].beat !== n.beat || tracker.notes[i - 1].hand !== 'left')) out.add(i);
+      last = n.chord;
+    });
+    return out;
+  }, [tracker]);
+  const labelRef = useRef(labelAt);
+  labelRef.current = labelAt;
+
   const tolBeats = (TIMING_WINDOW_S * bpm) / 60;
   const live = useRef({ tracker, mode: s.pianoPractice, tolBeats, waiting: false, resuming: false });
   live.current.tracker = tracker;
@@ -228,7 +242,7 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
         ctx.textAlign = 'center';
         ctx.fillText(noteName(n.midi), r.x + r.w / 2, Math.min(yBottom, hitY) - 6);
       }
-      if (n.hand === 'left' && n.chord && (i === 0 || t.notes[i - 1].beat !== n.beat || t.notes[i - 1].hand !== 'left')) {
+      if (n.chord && labelRef.current.has(i)) {
         chordLabels.push({ x: r.x - 6, y: Math.min(yBottom, hitY) - 6, text: n.chord });
       }
     }
@@ -320,6 +334,11 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
             <button key={v} title={title} className={`chip${s.pianoPractice === v ? ' active' : ''}`} onClick={() => s.set({ pianoPractice: v })}>{label}</button>
           ))}
         </div>
+        {waitingFor && (
+          <span className="piano-waiting">
+            your turn: <b>{[...new Set(waitingFor.map(noteName))].join(' ')}</b>
+          </span>
+        )}
         {s.pianoPractice !== 'watch' && (
           <span className="piano-score" title="hits · missed · wrong keys">
             <b className="good">{score.hits}</b> hit
@@ -345,11 +364,6 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
         onPointerLeave={onPointerUp}
       >
         <canvas ref={canvas} />
-        {waitingFor && (
-          <div className="piano-waiting">
-            waiting for you: <b>{[...new Set(waitingFor.map(noteName))].join(' ')}</b>
-          </div>
-        )}
       </div>
     </section>
   );

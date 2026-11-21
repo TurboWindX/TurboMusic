@@ -18,10 +18,11 @@ import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/pro
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
-import { normalizeSong, type Song, type SongSummary } from '../shared/types.ts';
+import { normalizeSong, type PianoPart, type Song, type SongSummary, type StoredPianoNote } from '../shared/types.ts';
 import { DEMO_SONG } from '../shared/demoSong.ts';
 import { ImportError, importFromUrl } from './importer.ts';
 import { ArrangeError, arrangeDuet } from './arranger.ts';
+import { getJob, startTranscription, TranscribeError, type UploadFile } from './transcriber.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Secrets (ANTHROPIC_API_KEY, APP_PASSWORD) live in .env, which git ignores.
@@ -34,7 +35,6 @@ const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '1mb' }));
 
 // ------------------------------------------------------------ optional auth
 const PASSWORD = process.env.APP_PASSWORD;
@@ -48,6 +48,12 @@ if (PASSWORD) {
     res.set('WWW-Authenticate', 'Basic realm="TurboMusic"').status(401).send('Auth required');
   });
 }
+
+// Parsed after auth, so unauthenticated requests never get their bodies read.
+// Songs with an imported piano part can be a few MB; sheet-music uploads (PDF/images) get their own bigger limit.
+const jsonSongs = express.json({ limit: '8mb' });
+const jsonUploads = express.json({ limit: '40mb' });
+app.use((req, res, next) => (req.path === '/api/transcribe' ? jsonUploads : jsonSongs)(req, res, next));
 
 // ------------------------------------------------------------ storage
 const fileFor = (id: string) => path.join(DATA_DIR, `${id}.json`);
@@ -93,8 +99,26 @@ function sanitize(body: unknown, id: string): Song | string {
     melodyStartBar: num('melodyStartBar', 1, 999),
   };
   for (const [k, v] of Object.entries(fields)) if (v !== undefined) (song as Record<string, unknown>)[k] = v;
+  const piano = sanitizePiano(b.piano);
+  if (piano) song.piano = piano;
   if (!song.title?.trim()) return 'title is required';
   return { ...normalizeSong(song), updatedAt: new Date().toISOString() };
+}
+
+function sanitizePiano(raw: unknown): PianoPart | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as { source?: unknown; notes?: unknown };
+  if (!Array.isArray(r.notes)) return undefined;
+  const fin = (v: unknown, lo: number, hi: number) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+  const notes: StoredPianoNote[] = [];
+  for (const n of r.notes.slice(0, 50_000)) {
+    if (!n || typeof n !== 'object') continue;
+    const { beat, duration, midi, hand } = n as Record<string, unknown>;
+    if (!fin(beat, 0, 100_000) || !fin(duration, 0, 1000) || !fin(midi, 0, 127) || (hand !== 'right' && hand !== 'left')) continue;
+    notes.push({ beat: beat as number, duration: duration as number, midi: Math.round(midi as number), hand });
+  }
+  if (!notes.length) return undefined;
+  return { source: typeof r.source === 'string' ? r.source.slice(0, 200) : 'sheet music', notes };
 }
 
 // ------------------------------------------------------------ routes
@@ -180,6 +204,22 @@ api.post('/arrange', async (req, res) => {
     if (e instanceof ArrangeError) return void res.status(e.status).json({ error: e.message });
     throw e;
   }
+});
+
+/** Start reading a PDF / photos of sheet music with Claude; poll GET /transcribe/:id for the result. */
+api.post('/transcribe', (req, res) => {
+  try {
+    res.status(202).json({ id: startTranscription((req.body as { files?: UploadFile[] })?.files ?? []) });
+  } catch (e) {
+    if (e instanceof TranscribeError) return void res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+api.get('/transcribe/:id', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) return void res.status(404).json({ error: 'Unknown or expired job' });
+  res.json(job);
 });
 
 app.use('/api', api);

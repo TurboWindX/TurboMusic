@@ -23,7 +23,20 @@ export interface DuetArrangement {
   chordChart: string; melodyTab: string; suggestedChordCapo: number; notes: string;
 }
 
+export interface TranscribeJob {
+  status: 'running' | 'done' | 'error';
+  elapsed: number;
+  error?: string;
+  result?: {
+    title: string; composer: string; bpm: number; beatsPerBar: number; remarks: string;
+    notes: { beat: number; duration: number; midi: number; staff: 1 | 2 }[];
+  };
+}
+
 export const api = {
+  transcribeStart: (files: { name: string; mediaType: string; data: string }[]) =>
+    req<{ id: string }>('POST', '/api/transcribe', { files }),
+  transcribeStatus: (id: string) => req<TranscribeJob>('GET', `/api/transcribe/${encodeURIComponent(id)}`),
   config: () => req<{ claude: boolean }>('GET', '/api/config'),
   arrange: (song: Omit<Song, 'id'>) => req<DuetArrangement>('POST', '/api/arrange', song),
   importUrl: (url: string) => req<ImportResult>('POST', '/api/import', { url }),

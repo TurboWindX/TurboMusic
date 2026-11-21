@@ -15,7 +15,8 @@ import { SettingsPanel } from '../components/SettingsPanel';
 import { ChordSheet } from '../components/ChordSheet';
 import { isTyping } from '../components/keys';
 import { PianoLane } from '../components/PianoLane';
-import { buildPianoPart } from '../music/piano';
+import { buildPianoPart, type PianoNote } from '../music/piano';
+import { chordName, parseChord, transposeChord } from '../music/theory';
 
 const STRUM_LABEL: Record<StrumMode, string> = { once: 'Once / chord', beats: 'Every beat', pattern: 'Song pattern' };
 const STRUM_ORDER: StrumMode[] = ['once', 'beats', 'pattern'];
@@ -64,21 +65,37 @@ function Player({ song }: { song: Song }) {
 
   const piano = s.leadInstrument === 'piano';
   /** Piano part in sounding pitch, matching what the engine plays for the guitars. */
-  const pianoNotes = useMemo(
-    () => (piano ? buildPianoPart(arr, {
-      melodyShift: noCapo ? 0 : song.capo,
-      chordShift: noCapo ? -chordCapo : song.capo,
-      leftStyle: s.pianoLeft,
-    }) : []),
-    [piano, arr, noCapo, chordCapo, song.capo, s.pianoLeft],
-  );
+  const pianoNotes = useMemo((): PianoNote[] => {
+    if (!piano) return [];
+    if (!song.piano?.notes.length) {
+      return buildPianoPart(arr, { melodyShift: noCapo ? 0 : song.capo, chordShift: noCapo ? -chordCapo : song.capo, leftStyle: s.pianoLeft });
+    }
+    // Imported sheet music: real pitches; only "no capo" mode moves the whole song down.
+    const shift = noCapo ? -chordCapo : 0;
+    let ci = 0;
+    return song.piano.notes.map((n) => {
+      let chord: string | undefined;
+      if (n.hand === 'left') {
+        while (ci + 1 < arr.chords.length && arr.chords[ci + 1].beat <= n.beat + 1e-6) ci++;
+        const c = arr.chords[ci];
+        const p = c && c.beat <= n.beat + 1e-6 ? parseChord(c.chord) : null;
+        chord = p ? (shift ? chordName(transposeChord(p, shift)) : c.chord) : undefined;
+      }
+      return { beat: n.beat, duration: n.duration, midi: n.midi + shift, hand: n.hand, chord };
+    });
+  }, [piano, song.piano, arr, noCapo, chordCapo, song.capo, s.pianoLeft]);
 
   const strums = useMemo(() => buildStrums(arr, s.strumMode, song.strumPattern), [arr, s.strumMode, song.strumPattern]);
 
   // --- feed the engine
   useEffect(() => {
     engine.load({
-      melody: arr.melody.map((n) => ({ beat: n.beat, midi: STANDARD_TUNING[n.string] + n.fret })),
+      // Piano mode: the piano part replaces the guitar melody. Your hand(s) follow the melody
+      // volume/mute (a guide you can switch off); the other hand plays along as accompaniment.
+      melody: piano ? [] : arr.melody.map((n) => ({ beat: n.beat, midi: STANDARD_TUNING[n.string] + n.fret })),
+      piano: piano
+        ? pianoNotes.map((n) => ({ beat: n.beat, duration: n.duration, midi: n.midi, guide: s.pianoHands === 'both' || s.pianoHands === n.hand }))
+        : [],
       strums: strums.map((st) => ({
         beat: st.beat,
         dir: st.dir,
@@ -89,7 +106,7 @@ function Player({ song }: { song: Song }) {
       bpm: song.bpm,
       capo: noCapo ? 0 : song.capo,
     });
-  }, [arr, strums, resolved, chordCapo, noCapo, song.bpm, song.capo, bpb]);
+  }, [arr, strums, resolved, chordCapo, noCapo, song.bpm, song.capo, bpb, piano, pianoNotes, s.pianoHands]);
 
   useEffect(() => { engine.setSpeed(s.speed); }, [s.speed]);
   useEffect(() => {
@@ -101,7 +118,8 @@ function Player({ song }: { song: Song }) {
     engine.setVolume('melody', s.volMelody);
     engine.setVolume('chords', s.volChords);
     engine.setVolume('click', s.volClick);
-  }, [s.metronome, s.countIn, s.latencyMs, s.muteMelody, s.muteChords, s.volMelody, s.volChords, s.volClick]);
+    engine.keysVolume = s.volKeys;
+  }, [s.metronome, s.countIn, s.latencyMs, s.muteMelody, s.muteChords, s.volMelody, s.volChords, s.volClick, s.volKeys]);
   useEffect(() => { engine.loop = loop; }, [loop]);
   useEffect(() => {
     engine.stop();
@@ -315,7 +333,7 @@ function Player({ song }: { song: Song }) {
             {s.muteChords ? '🔇' : '🔊'} chords
           </button>
           <button className={`btn${s.muteMelody ? ' off' : ''}`} onClick={() => s.set({ muteMelody: !s.muteMelody })} title="Mute melody synth (2)">
-            {s.muteMelody ? '🔇' : '🔊'} melody
+            {s.muteMelody ? '🔇' : '🔊'} {piano ? 'my hand' : 'melody'}
           </button>
         </div>
         <div className="group">

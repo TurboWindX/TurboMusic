@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer, { type Page } from 'puppeteer-core';
+import puppeteer, { type ElementHandle, type Page } from 'puppeteer-core';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'docs', 'screenshots');
@@ -119,6 +119,16 @@ async function main() {
     // Library
     await open(page, '#/', '.song-card');
     await shot(page, 'library', 480); // the rest is empty with just the demo song
+
+    // Sheet-music import: parts review with hand assignment and preview (example file from docs/examples).
+    await page.evaluate(() => {
+      [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Import sheet music'))?.click();
+    });
+    const fileInput = (await page.waitForSelector('.sheet-import input[type=file]')) as ElementHandle<HTMLInputElement>;
+    await fileInput.uploadFile(path.join(ROOT, 'docs', 'examples', 'demo-tune.mid'));
+    await page.waitForSelector('.parts-table');
+    await sleep(300);
+    await shot(page, 'import-sheet');
 
     // Player, mid-song: start playback and let it run past the count-in.
     await open(page, `#/play/${DEMO}`, '.player');

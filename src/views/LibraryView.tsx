@@ -2,12 +2,35 @@ import { useEffect, useRef, useState } from 'react';
 import type { Song, SongSummary } from '../../shared/types';
 import { api } from '../api';
 import { go } from '../router';
+import { SONG_DEFAULTS } from '../../shared/types';
+import { ImportSheetDialog } from '../components/ImportSheetDialog';
+import type { SongFromSheet } from '../import/sheet';
+import { useSettings } from '../state/settings';
 
 export function LibraryView() {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [claude, setClaude] = useState(false);
+  useEffect(() => { api.config().then((c) => setClaude(c.claude)).catch(() => {}); }, []);
+
+  /** New song from sheet music: piano part + guitar lead + chords, then straight to the player on piano. */
+  const importSheet = async (s: SongFromSheet) => {
+    try {
+      const created = await api.create({
+        ...SONG_DEFAULTS,
+        ...s,
+        notes: `Imported from ${s.piano.source}. Guitar lead and chords were made from the piano part.`,
+      });
+      useSettings.getState().set({ leadInstrument: 'piano' });
+      go({ name: 'play', id: created.id });
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+      setSheetOpen(false);
+    }
+  };
 
   const refresh = () => api.list().then(setSongs).catch((e) => setError(String(e.message ?? e)));
   useEffect(() => { void refresh(); }, []);
@@ -49,6 +72,7 @@ export function LibraryView() {
         <div className="actions">
           <a className="btn" href="#/tuner">Tuner</a>
           <a className="btn" href="#/drill">Chord drill</a>
+          <button className="btn" onClick={() => setSheetOpen(true)}>🎼 Import sheet music</button>
           <button className="btn" onClick={() => fileInput.current?.click()}>Import JSON</button>
           <a className="btn primary" href="#/new">+ New song</a>
         </div>
@@ -57,6 +81,7 @@ export function LibraryView() {
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importSong(f); e.target.value = ''; }}
         />
       </header>
+      {sheetOpen && <ImportSheetDialog claude={claude} onImport={(s) => void importSheet(s)} onClose={() => setSheetOpen(false)} />}
 
       {error && <div className="banner error" onClick={() => setError(null)}>{error}</div>}
       {!songs && !error && <p className="muted">Loading…</p>}

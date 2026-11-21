@@ -9,6 +9,8 @@ import { midiToFreq } from '../music/theory';
 
 export interface NoteEv { beat: number; midi: number }
 export interface StrumEv { beat: number; midi: number[]; dir: 'D' | 'U' }
+/** Piano part note. guide = the hand being practised (melody volume/mute), else accompaniment (keys volume). */
+export interface PianoEv { beat: number; duration: number; midi: number; guide: boolean }
 
 export type Part = 'melody' | 'chords' | 'click';
 
@@ -33,6 +35,8 @@ export class AudioEngine {
 
   private melody: NoteEv[] = [];
   private strums: StrumEv[] = [];
+  private piano: PianoEv[] = [];
+  private ringing = new Set<{ stop: (t: number) => void; end: number }>();
   private beatsPerBar = 4;
   private totalBeats = 0;
   private bpm = 80;
@@ -87,8 +91,9 @@ export class AudioEngine {
 
   get context() { return this.ctx; }
 
-  load(opts: { melody: NoteEv[]; strums: StrumEv[]; beatsPerBar: number; totalBeats: number; bpm: number; capo: number }) {
+  load(opts: { melody: NoteEv[]; strums: StrumEv[]; piano?: PianoEv[]; beatsPerBar: number; totalBeats: number; bpm: number; capo: number }) {
     this.melody = [...opts.melody].sort((a, b) => a.beat - b.beat);
+    this.piano = [...(opts.piano ?? [])].sort((a, b) => a.beat - b.beat);
     this.strums = [...opts.strums].sort((a, b) => a.beat - b.beat);
     this.beatsPerBar = opts.beatsPerBar;
     this.totalBeats = opts.totalBeats;
@@ -191,14 +196,20 @@ export class AudioEngine {
   /** Sound for a key pressed on a MIDI keyboard (silent controllers need it; digital pianos don't). */
   async keyDown(midi: number, velocity: number) {
     const ctx = await this.ensure();
+    const out = this.keysOut();
+    this.voices.get(midi)?.stop(ctx.currentTime);
+    this.sustained.delete(midi);
+    this.voices.set(midi, this.pianoVoice(ctx, midi, velocity, ctx.currentTime, out));
+  }
+
+  /** Bus for live keys and the piano accompaniment (created on first use). */
+  private keysOut(): GainNode {
     if (!this.keysBus) {
-      this.keysBus = ctx.createGain();
+      this.keysBus = this.ctx!.createGain();
       this.keysBus.connect(this.master);
     }
     this.keysBus.gain.value = this.keysVolume;
-    this.voices.get(midi)?.stop(ctx.currentTime);
-    this.sustained.delete(midi);
-    this.voices.set(midi, this.pianoVoice(ctx, midi, velocity));
+    return this.keysBus;
   }
 
   keyUp(midi: number) {
@@ -219,8 +230,7 @@ export class AudioEngine {
   }
 
   /** Small electric-piano-ish voice: two partials, fast attack, natural decay, short release. */
-  private pianoVoice(ctx: AudioContext, midi: number, velocity: number) {
-    const t = ctx.currentTime;
+  private pianoVoice(ctx: AudioContext, midi: number, velocity: number, t: number, dest: AudioNode) {
     const f = midiToFreq(midi);
     const vel = 0.15 + 0.5 * velocity;
     const out = ctx.createGain();
@@ -246,13 +256,16 @@ export class AudioEngine {
       o.start(t);
       return o;
     });
-    lp.connect(out).connect(this.keysBus!);
+    lp.connect(out).connect(dest);
+    oscs.forEach((o) => this.track(o, t));
+    let stopped = false;
     return {
       stop: (at: number) => {
-        out.gain.cancelScheduledValues(at);
-        out.gain.setValueAtTime(out.gain.value, at);
-        out.gain.setTargetAtTime(0, at, 0.08);
-        oscs.forEach((o) => o.stop(at + 0.6));
+        const g = out.gain as AudioParam & { cancelAndHoldAtTime?: (t: number) => void };
+        if (g.cancelAndHoldAtTime) g.cancelAndHoldAtTime(at);
+        else if (at <= ctx.currentTime + 0.01) { g.cancelScheduledValues(at); g.setValueAtTime(g.value, at); }
+        g.setTargetAtTime(0, at, 0.08);
+        if (!stopped) { stopped = true; oscs.forEach((o) => { try { o.stop(at + 0.6); } catch { /* already stopped */ } }); }
       },
     };
   }
@@ -316,6 +329,15 @@ export class AudioEngine {
       const vel = (s.dir === 'D' ? 0.55 : 0.4) * (onBeat ? 1 : 0.85);
       notes.forEach((m, i) => this.pluck('chords', m + this.capo, at(s.beat) + i * 0.014, vel));
     }
+    for (const n of rangeOf(this.piano, b0 - eps, b1 - eps)) {
+      const t = at(n.beat);
+      const end = t + Math.max(0.08, n.duration * seg.spb - 0.02);
+      const voice = this.pianoVoice(this.ctx!, n.midi, 0.55, t, n.guide ? this.buses.melody : this.keysOut());
+      voice.stop(end);
+      const entry = { stop: voice.stop, end };
+      this.ringing.add(entry);
+      setTimeout(() => this.ringing.delete(entry), (end - this.ctx!.currentTime + 1) * 1000);
+    }
     if (this.metronome) {
       for (let k = Math.ceil(b0 - eps); k < b1 - eps; k++) {
         this.click(at(k), k % this.beatsPerBar === 0, false);
@@ -358,6 +380,8 @@ export class AudioEngine {
 
   private silenceFuture() {
     const now = this.ctx?.currentTime ?? 0;
+    for (const r of this.ringing) if (r.end > now) r.stop(now);
+    this.ringing.clear();
     for (const e of this.sources) {
       if (e.start > now) {
         try { e.src.stop(); } catch { /* not started */ }

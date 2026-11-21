@@ -21,13 +21,17 @@ Learn songs together as a guitar duet. One player follows **chords** (big chord 
     <td><img src="docs/screenshots/help.png" alt="Keyboard shortcuts"><br><sub><b>Keyboard / remote</b> (<kbd>?</kbd>): everything works from a keyboard or TV remote.</sub></td>
     <td><img src="docs/screenshots/library.png" alt="Song library"><br><sub><b>Library</b>: your songs, import/export as JSON.</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/import-sheet.png" alt="Import sheet music"><br><sub><b>Import sheet music</b>: MIDI, MusicXML or a PDF/photo; pick which part is which hand, then get piano, guitar lead and chords in one go.</sub></td>
+    <td></td>
+  </tr>
 </table>
 
 Screenshots are generated, not hand-made: `npm run screenshots` builds the app, starts a throwaway server with only the demo song (your own songs are never shown), drives headless Chrome through each screen with puppeteer-core and writes `docs/screenshots/*.png`. It finds Chrome/Edge/Chromium automatically; set `CHROME_PATH` if it can't.
 
 ## Piano with a USB keyboard
 
-Press <kbd>P</kbd> (or **🎹 piano** in the top bar) and the lead part switches from guitar tab to falling notes over a keyboard. Every song gets a piano part automatically: the **right hand** plays the melody from the tab, the **left hand** plays the chord chart (root notes, simple 3-note chords or full chords, set in ⚙). It's in the same key as the guitars, capo included, so piano + guitar works as a duet.
+Press <kbd>P</kbd> (or **🎹 piano** in the top bar) and the lead part switches from guitar tab to falling notes over a keyboard. Every song gets a piano part automatically: the **right hand** plays the melody from the tab, the **left hand** plays the chord chart (root notes, simple 3-note chords or full chords, set in ⚙). It's in the same key as the guitars, capo included, so piano + guitar works as a duet. Songs imported from sheet music use the real piano part instead (see [Importing sheet music](#importing-sheet-music)).
 
 Plug a MIDI keyboard or digital piano in over USB (or Bluetooth MIDI) and it's picked up automatically, hot-plugging included. The browser asks once for permission to use MIDI devices.
 
@@ -78,7 +82,29 @@ Click a bar in the tab to jump there. If the screen and sound drift apart on the
 - **Drill** (`#/drill`): alternate two chords on a click. Also has "one-minute changes" counting (press Enter for +1).
 - **Tuner** (`#/tuner`): needs microphone access, which only works on localhost or HTTPS.
 
-## Adding a song
+## Importing sheet music
+
+Library → **🎼 Import sheet music** (or the same button in the editor). Drop a file in:
+
+| Format | How it's read | Notes |
+|---|---|---|
+| **MIDI** (`.mid`) | in the browser, exact | Tracks are listed; piano tracks are picked automatically. Two tracks → the higher one is the right hand. |
+| **MusicXML** (`.musicxml`, `.xml`, `.mxl`) | in the browser, exact | What MuseScore, Finale, Sibelius, Dorico export. Grand staff → upper staff right hand, lower staff left hand. Ties, chords, several voices, pickup bars, repeats and 1st/2nd endings are handled. |
+| **PDF or photos** (`.pdf`, `.png`, `.jpg`, several pages at once) | by Claude (needs `ANTHROPIC_API_KEY`) | Takes ~10 s for a page to a few minutes for a long piece. Check it by ear: mistakes are possible on dense or blurry scores. |
+
+MuseScore files (`.mscz`): in MuseScore use *File → Export → MusicXML*. Guitar Pro: export MusicXML or MIDI.
+
+Before importing you see each part with its note range and a small preview, and choose per part: both hands (split by staff, or at middle C), right hand, left hand, or skip it (drums are skipped by default). From one import you get:
+
+- **Piano part**: both hands, exactly as written (onsets snapped to a fine 16th/triplet grid), shown in piano mode.
+- **Guitar lead tab**: the top line of the right hand, moved into the guitar's middle register and fingered in low positions.
+- **Chord chart** for the rhythm player, detected from the harmony bar by bar (or half bar when it clearly changes).
+
+Try it with the example files in [`docs/examples/`](docs/examples) (an original 8-bar tune as `.mid` and `.mxl`).
+
+In piano mode the app plays the piano part itself: the hand you practise follows the **my hand** volume button (switch it off once you know the part), and the other hand plays along as accompaniment.
+
+## Adding a song by hand
 
 Library → **+ New song** (or edit an existing one). Paste:
 
@@ -114,6 +140,8 @@ src/music/             theory, chord voicings + difficulty/capo advice, chart & 
 src/audio/engine.ts    Web Audio lookahead scheduler, Karplus-Strong guitar synth, metronome, loop
 src/audio/tuner.ts     mic pitch detection
 src/audio/midi.ts      Web MIDI keyboard input (USB/Bluetooth), sustain pedal
+src/import/            sheet-music import: MIDI + MusicXML/.mxl parsers, hand split, piano -> guitar tab + chords
+server/transcriber.ts  PDF/photo sheet music read by Claude (background job, polled by the client)
 src/views/             Library, Player, Editor, Drill, Tuner
 src/components/        ChordDiagram (SVG), Timeline (scrolling tab), ChordLane, PianoLane (falling notes), settings
 scripts/screenshots.ts headless-Chrome screenshot generator for this README

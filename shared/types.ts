@@ -22,7 +22,23 @@ export interface Song {
   /** The tab as imported, kept when Claude rewrites `tab` into a simplified melody. */
   originalTab?: string;
   notes?: string;
+  /** Piano part imported from sheet music (MIDI / MusicXML / PDF). Absent = generated from tab + chords. */
+  piano?: PianoPart;
   updatedAt?: string;
+}
+
+export interface StoredPianoNote {
+  /** Start, in quarter-note beats from the start of the song. */
+  beat: number;
+  duration: number;
+  midi: number;
+  hand: 'right' | 'left';
+}
+
+export interface PianoPart {
+  /** Where it came from, e.g. "nocturne.mid". */
+  source: string;
+  notes: StoredPianoNote[];
 }
 
 export interface SongSummary {
