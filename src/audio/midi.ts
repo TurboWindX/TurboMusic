@@ -13,6 +13,8 @@ export interface MidiNoteEvent {
   type: 'on' | 'off';
   midi: number;
   velocity: number; // 0..1
+  /** Keyboard name, or 'screen' for the on-screen keys. */
+  device?: string;
 }
 
 export interface MidiSnapshot {
@@ -67,20 +69,21 @@ class MidiInput {
     const names: string[] = [];
     this.access.inputs.forEach((input) => {
       if (input.state !== 'connected') return;
-      names.push(input.name || 'MIDI keyboard');
-      input.onmidimessage = (ev) => this.handle(ev.data);
+      const name = input.name || 'MIDI keyboard';
+      names.push(name);
+      input.onmidimessage = (ev) => this.handle(ev.data, name);
     });
     if (!names.length) { this.held.clear(); this.pedal = false; }
     this.set({ status: 'ready', devices: names });
   }
 
-  private handle(data: Uint8Array | null) {
+  private handle(data: Uint8Array | null, device: string) {
     if (!data || data.length < 2) return;
     const cmd = data[0] & 0xf0;
     const d1 = data[1];
     const d2 = data[2] ?? 0;
-    if (cmd === 0x90 && d2 > 0) this.emit({ type: 'on', midi: d1, velocity: d2 / 127 });
-    else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) this.emit({ type: 'off', midi: d1, velocity: 0 });
+    if (cmd === 0x90 && d2 > 0) this.emit({ type: 'on', midi: d1, velocity: d2 / 127, device });
+    else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) this.emit({ type: 'off', midi: d1, velocity: 0, device });
     else if (cmd === 0xb0 && d1 === 64) {
       const down = d2 >= 64;
       if (down !== this.pedal) { this.pedal = down; this.pedalSubs.forEach((fn) => fn(down)); }

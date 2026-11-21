@@ -10,5 +10,7 @@ export default defineConfig({
     port: 5173,
     proxy: { '/api': `http://localhost:${API_PORT}` },
   },
+  // The sheet-music renderer is one big chunk, loaded only on the sheet page.
+  build: { chunkSizeWarningLimit: 1600 },
   test: { environment: 'node' },
 } as any);

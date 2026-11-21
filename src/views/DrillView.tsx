@@ -15,7 +15,7 @@ const PRESETS = [['C', 'G'], ['G', 'D'], ['Am', 'E'], ['C', 'Am'], ['F', 'C'], [
 const BARS = 64;
 
 export function DrillView({ initial }: { initial?: string[] }) {
-  const easy = useSettings((s) => s.easyChords);
+  const easy = useSettings((s) => s.rhythmLevel === 'easy');
   const [a, setA] = useState(initial?.[0] ?? 'C');
   const [b, setB] = useState(initial?.[1] ?? 'G');
   const [bpm, setBpm] = useState(60);

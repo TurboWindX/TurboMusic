@@ -9,8 +9,8 @@ import { midiToFreq } from '../music/theory';
 
 export interface NoteEv { beat: number; midi: number }
 export interface StrumEv { beat: number; midi: number[]; dir: 'D' | 'U' }
-/** Piano part note. guide = the hand being practised (melody volume/mute), else accompaniment (keys volume). */
-export interface PianoEv { beat: number; duration: number; midi: number; guide: boolean }
+/** Piano note, played on the bus of the player whose part it is (so volume and mute follow that player). */
+export interface PianoEv { beat: number; duration: number; midi: number; part: 'melody' | 'chords' }
 
 export type Part = 'melody' | 'chords' | 'click';
 
@@ -332,7 +332,7 @@ export class AudioEngine {
     for (const n of rangeOf(this.piano, b0 - eps, b1 - eps)) {
       const t = at(n.beat);
       const end = t + Math.max(0.08, n.duration * seg.spb - 0.02);
-      const voice = this.pianoVoice(this.ctx!, n.midi, 0.55, t, n.guide ? this.buses.melody : this.keysOut());
+      const voice = this.pianoVoice(this.ctx!, n.midi, n.part === 'chords' ? 0.4 : 0.55, t, this.buses[n.part]);
       voice.stop(end);
       const entry = { stop: voice.stop, end };
       this.ringing.add(entry);

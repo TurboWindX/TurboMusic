@@ -4,6 +4,7 @@ import { PlayerView } from './views/PlayerView';
 import { EditorView } from './views/EditorView';
 import { DrillView } from './views/DrillView';
 import { TunerView } from './views/TunerView';
+import { SheetView } from './views/SheetView';
 
 export function App() {
   const route = useRoute();
@@ -13,6 +14,7 @@ export function App() {
     case 'new': return <EditorView id={null} />;
     case 'drill': return <DrillView initial={route.chords} />;
     case 'tuner': return <TunerView />;
+    case 'sheet': return <SheetView id={route.id} />;
     default: return <LibraryView />;
   }
 }

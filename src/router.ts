@@ -1,4 +1,4 @@
-/** Tiny hash router: #/, #/play/:id, #/edit/:id, #/drill, #/tuner */
+/** Tiny hash router: #/, #/play/:id, #/edit/:id, #/sheet/:id, #/drill, #/tuner */
 import { useEffect, useState } from 'react';
 
 export type Route =
@@ -7,7 +7,8 @@ export type Route =
   | { name: 'edit'; id: string }
   | { name: 'new' }
   | { name: 'drill'; chords?: string[] }
-  | { name: 'tuner' };
+  | { name: 'tuner' }
+  | { name: 'sheet'; id: string };
 
 export function parseHash(hash: string): Route {
   const [, a, b] = hash.replace(/^#/, '').split('/');
@@ -18,6 +19,7 @@ export function parseHash(hash: string): Route {
     case 'new': return { name: 'new' };
     case 'drill': return { name: 'drill', chords: arg ? arg.split(',') : undefined };
     case 'tuner': return { name: 'tuner' };
+    case 'sheet': return arg ? { name: 'sheet', id: arg } : { name: 'library' };
     default: return { name: 'library' };
   }
 }
@@ -29,6 +31,7 @@ export function href(r: Route): string {
     case 'new': return '#/new';
     case 'drill': return r.chords?.length ? `#/drill/${encodeURIComponent(r.chords.join(','))}` : '#/drill';
     case 'tuner': return '#/tuner';
+    case 'sheet': return `#/sheet/${encodeURIComponent(r.id)}`;
     default: return '#/';
   }
 }

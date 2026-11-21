@@ -44,11 +44,10 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         <h3>Piano / MIDI keyboard</h3>
         <div className="form-grid">
           <label className="field">
-            <span>Left hand plays</span>
-            <select value={s.pianoLeft} onChange={(e) => s.set({ pianoLeft: e.target.value as typeof s.pianoLeft })}>
-              <option value="root">just the root note (easiest)</option>
+            <span>Easy piano chords</span>
+            <select value={s.pianoEasyChords} onChange={(e) => s.set({ pianoEasyChords: e.target.value as typeof s.pianoEasyChords })}>
               <option value="triad">simple 3-note chords</option>
-              <option value="full">full chords (7ths etc.)</option>
+              <option value="root">just the root note (easiest)</option>
             </select>
           </label>
           <label className="field">

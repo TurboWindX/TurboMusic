@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { chordAt, type Arrangement, type StrumEvent } from '../music/arrangement';
 import type { ResolvedChord } from '../music/chords';
 import { ChordDiagram } from './ChordDiagram';
@@ -11,9 +11,11 @@ interface Props {
   playing: boolean;
   playerName: string;
   capoLabel: string | null;
+  /** Instrument / level switches shown in the header. */
+  controls?: ReactNode;
 }
 
-export function ChordLane({ arr, resolved, strums, beat, playing, playerName, capoLabel }: Props) {
+export function ChordLane({ arr, resolved, strums, beat, playing, playerName, capoLabel, controls }: Props) {
   const bpb = arr.beatsPerBar;
   const { index, event } = chordAt(arr, beat);
   const next = arr.chords[index + 1] ?? null;
@@ -40,6 +42,7 @@ export function ChordLane({ arr, resolved, strums, beat, playing, playerName, ca
       <header className="lane-head">
         <span className="lane-who chords">{playerName}</span>
         <span className="lane-what">chords</span>
+        {controls}
         {capoLabel && <span className="pill">{capoLabel}</span>}
         <span className="chord-legend" aria-label="How to read the chord diagrams">
           <span><i className="lg-open" /> play open</span>

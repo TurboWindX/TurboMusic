@@ -153,18 +153,43 @@ async function main() {
     await shot(page, 'help');
     await page.keyboard.press('Escape');
 
-    // Lead on piano: wait mode stops at the next chord until it's played on the USB keyboard.
+    // Lead on piano, both hands: wait mode stops at the next chord until it's played on the USB keyboard.
     await page.keyboard.press('p');
     await page.waitForSelector('.piano-lane');
     await page.evaluate(() => {
-      const chip = [...document.querySelectorAll<HTMLButtonElement>('.piano-lane .chip')].find((c) => c.textContent === 'both hands');
-      chip?.click();
+      [...document.querySelectorAll<HTMLButtonElement>('.piano-lane .chip')].find((c) => c.textContent?.includes('left hand'))?.click();
     });
     await page.keyboard.press('Space');
     await page.waitForSelector('.piano-waiting', { timeout: 20000 });
     await sleep(500);
     await shot(page, 'piano');
+    await page.evaluate(() => {
+      [...document.querySelectorAll<HTMLButtonElement>('.piano-lane .chip')].find((c) => c.textContent?.includes('left hand'))?.click();
+    });
     await page.keyboard.press('p');
+
+    // Mixed: chords on piano (easy), melody on guitar (original): Shift+P and Shift+E.
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyP');
+    await page.keyboard.press('KeyE');
+    await page.keyboard.up('Shift');
+    await page.waitForSelector('.rhythm-piano');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await sleep(500);
+    await shot(page, 'mixed');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyP');
+    await page.keyboard.up('Shift');
+
+    // Sheet music: the guitar song as a piano grand staff.
+    await open(page, `#/sheet/${DEMO}`, '.sheet-page');
+    await page.evaluate(() => {
+      [...document.querySelectorAll<HTMLButtonElement>('.seg-btn')].find((b) => b.textContent?.includes('piano'))?.click();
+    });
+    await page.waitForSelector('.sheet-paper svg', { timeout: 20000 });
+    await sleep(1500);
+    await shot(page, 'sheet');
 
     // Editor
     await open(page, `#/edit/${DEMO}`, 'textarea');

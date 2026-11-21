@@ -69,3 +69,22 @@ export function fingerLine(midis: number[]): { string: number; fret: number }[] 
     return { string: p.string, fret: p.fret };
   });
 }
+
+/** Finger groups of simultaneous sounding pitches (chords), one note per string, low positions. */
+export function fingerChords(groups: number[][]): { string: number; fret: number }[][] {
+  let prev: { string: number; fret: number } | null = null;
+  return groups.map((g) => {
+    const used = new Set<number>();
+    const out: { string: number; fret: number }[] = [];
+    for (const m of [...new Set(g)].sort((a, b) => b - a)) {
+      let midi = m;
+      while (midi < LOWEST) midi += 12;
+      const p = place(midi, -1, prev, used);
+      if (used.has(p.string)) continue; // no free string left for this one
+      used.add(p.string);
+      out.push(p);
+      if (!prev || out.length === 1) prev = p;
+    }
+    return out;
+  });
+}

@@ -15,8 +15,8 @@ import { SettingsPanel } from '../components/SettingsPanel';
 import { ChordSheet } from '../components/ChordSheet';
 import { isTyping } from '../components/keys';
 import { PianoLane } from '../components/PianoLane';
-import { buildPianoPart, type PianoNote } from '../music/piano';
-import { chordName, parseChord, transposeChord } from '../music/theory';
+import { PartControls } from '../components/PartControls';
+import { pianoLead, pianoRhythm, type PartContext } from '../music/parts';
 
 const STRUM_LABEL: Record<StrumMode, string> = { once: 'Once / chord', beats: 'Every beat', pattern: 'Song pattern' };
 const STRUM_ORDER: StrumMode[] = ['once', 'beats', 'pattern'];
@@ -42,71 +42,80 @@ function Player({ song }: { song: Song }) {
   const pos = useQuantizedPosition(0.5);
 
   const noCapo = !s.haveCapo;
+  const rhythmPiano = s.rhythmInstrument === 'piano';
+  const leadPiano = s.leadInstrument === 'piano';
+  /** Guitar chord shapes get simplified (and an automatic capo) only for an easy guitar rhythm part. */
+  const easyShapes = !rhythmPiano && s.rhythmLevel === 'easy';
+
   const baseArr = useMemo(() => buildArrangement(song), [song]);
+  /** The full tab as imported (before Claude or the sheet import simplified it), if the song has one. */
+  const baseOrig = useMemo(
+    () => (song.originalTab?.trim() ? buildArrangement({ ...song, tab: song.originalTab }) : baseArr),
+    [song, baseArr],
+  );
   /** Capo (or downward shift) that makes the chord shapes clearly easier, if any. */
   const capoAdvice = useMemo(() => recommendCapo(baseArr.chords.map((c) => c.chord)), [baseArr]);
-  /** A manual choice wins; otherwise easy mode applies the recommended capo automatically. */
-  const manualCapo: number | undefined = s.chordCapos[song.id];
-  const autoCapo = s.easyChords ? (capoAdvice?.capo ?? 0) : 0;
-  const chordCapo = manualCapo ?? autoCapo;
+  /** A manual choice wins; otherwise easy shapes apply the recommended capo automatically. Piano needs no capo. */
+  const manualCapo: number | undefined = rhythmPiano ? undefined : s.chordCapos[song.id];
+  const autoCapo = easyShapes ? (capoAdvice?.capo ?? 0) : 0;
+  const chordCapo = rhythmPiano ? 0 : (manualCapo ?? autoCapo);
   /** Without a capo the whole song moves down by the chord capo amount, so the chord shapes stay the same. */
-  const arr = useMemo(
-    () => (noCapo && chordCapo ? { ...baseArr, melody: transposeMelody(baseArr.melody, -chordCapo) } : baseArr),
-    [baseArr, noCapo, chordCapo],
+  const shiftDown = useCallback(
+    (a: typeof baseArr) => (noCapo && chordCapo ? { ...a, melody: transposeMelody(a.melody, -chordCapo) } : a),
+    [noCapo, chordCapo],
   );
+  const arr = useMemo(() => shiftDown(baseArr), [baseArr, shiftDown]);
+  const arrOrig = useMemo(() => (baseOrig === baseArr ? arr : shiftDown(baseOrig)), [baseOrig, baseArr, arr, shiftDown]);
+  /** What the lead guitarist reads and hears. */
+  const leadArr = s.leadLevel === 'original' ? arrOrig : arr;
   const bpb = arr.beatsPerBar;
 
   const resolved = useMemo(() => {
     const m = new Map<string, ResolvedChord>();
-    arr.uniqueChords.forEach((c) => m.set(c, resolveChord(c, { easy: s.easyChords, shift: chordCapo })));
+    arr.uniqueChords.forEach((c) => m.set(c, resolveChord(c, { easy: easyShapes, shift: chordCapo })));
     return m;
-  }, [arr, s.easyChords, chordCapo]);
+  }, [arr, easyShapes, chordCapo]);
   const chordLabel = useCallback((c: string) => resolved.get(c)?.display ?? c, [resolved]);
 
-  const piano = s.leadInstrument === 'piano';
-  /** Piano part in sounding pitch, matching what the engine plays for the guitars. */
-  const pianoNotes = useMemo((): PianoNote[] => {
-    if (!piano) return [];
-    if (!song.piano?.notes.length) {
-      return buildPianoPart(arr, { melodyShift: noCapo ? 0 : song.capo, chordShift: noCapo ? -chordCapo : song.capo, leftStyle: s.pianoLeft });
-    }
-    // Imported sheet music: real pitches; only "no capo" mode moves the whole song down.
-    const shift = noCapo ? -chordCapo : 0;
-    let ci = 0;
-    return song.piano.notes.map((n) => {
-      let chord: string | undefined;
-      if (n.hand === 'left') {
-        while (ci + 1 < arr.chords.length && arr.chords[ci + 1].beat <= n.beat + 1e-6) ci++;
-        const c = arr.chords[ci];
-        const p = c && c.beat <= n.beat + 1e-6 ? parseChord(c.chord) : null;
-        chord = p ? (shift ? chordName(transposeChord(p, shift)) : c.chord) : undefined;
-      }
-      return { beat: n.beat, duration: n.duration, midi: n.midi + shift, hand: n.hand, chord };
-    });
-  }, [piano, song.piano, arr, noCapo, chordCapo, song.capo, s.pianoLeft]);
+  // --- piano parts (sounding pitch, so piano and guitars are in the same key)
+  const partCtx = useMemo<PartContext>(() => ({
+    song,
+    arrEasy: arr,
+    arrOriginal: arrOrig,
+    melodyShift: noCapo ? 0 : song.capo,
+    chordShift: noCapo ? -chordCapo : song.capo,
+    importShift: noCapo ? -chordCapo : 0,
+  }), [song, arr, arrOrig, noCapo, chordCapo]);
+  const leadPianoNotes = useMemo(
+    () => (leadPiano ? pianoLead(partCtx, s.leadLevel, s.leadBothHands, s.pianoEasyChords) : []),
+    [leadPiano, partCtx, s.leadLevel, s.leadBothHands, s.pianoEasyChords],
+  );
+  const rhythmPianoNotes = useMemo(
+    () => (rhythmPiano ? pianoRhythm(partCtx, s.rhythmLevel, s.pianoEasyChords) : []),
+    [rhythmPiano, partCtx, s.rhythmLevel, s.pianoEasyChords],
+  );
 
   const strums = useMemo(() => buildStrums(arr, s.strumMode, song.strumPattern), [arr, s.strumMode, song.strumPattern]);
 
-  // --- feed the engine
+  // --- feed the engine: each player's part on its own bus, so "mute" works per player
   useEffect(() => {
     engine.load({
-      // Piano mode: the piano part replaces the guitar melody. Your hand(s) follow the melody
-      // volume/mute (a guide you can switch off); the other hand plays along as accompaniment.
-      melody: piano ? [] : arr.melody.map((n) => ({ beat: n.beat, midi: STANDARD_TUNING[n.string] + n.fret })),
-      piano: piano
-        ? pianoNotes.map((n) => ({ beat: n.beat, duration: n.duration, midi: n.midi, guide: s.pianoHands === 'both' || s.pianoHands === n.hand }))
-        : [],
-      strums: strums.map((st) => ({
+      melody: leadPiano ? [] : leadArr.melody.map((n) => ({ beat: n.beat, midi: STANDARD_TUNING[n.string] + n.fret })),
+      strums: rhythmPiano ? [] : strums.map((st) => ({
         beat: st.beat,
         dir: st.dir,
         midi: (resolved.get(st.chord)?.midi ?? []).map((m) => m + (noCapo ? 0 : chordCapo)),
       })),
+      piano: [
+        ...leadPianoNotes.map((n) => ({ beat: n.beat, duration: n.duration, midi: n.midi, part: 'melody' as const })),
+        ...rhythmPianoNotes.map((n) => ({ beat: n.beat, duration: n.duration, midi: n.midi, part: 'chords' as const })),
+      ],
       beatsPerBar: bpb,
       totalBeats: arr.totalBeats,
       bpm: song.bpm,
       capo: noCapo ? 0 : song.capo,
     });
-  }, [arr, strums, resolved, chordCapo, noCapo, song.bpm, song.capo, bpb, piano, pianoNotes, s.pianoHands]);
+  }, [arr, leadArr, strums, resolved, chordCapo, noCapo, song.bpm, song.capo, bpb, leadPiano, rhythmPiano, leadPianoNotes, rhythmPianoNotes]);
 
   useEffect(() => { engine.setSpeed(s.speed); }, [s.speed]);
   useEffect(() => {
@@ -202,12 +211,18 @@ function Player({ song }: { song: Song }) {
       else if (k === '[') markA();
       else if (k === ']') markB();
       else if (k === 'm' || k === 'M') s.set({ metronome: !s.metronome });
-      else if (k === 'e' || k === 'E') s.set({ easyChords: !s.easyChords });
+      else if (k === 'e' || k === 'E') {
+        if (e.shiftKey) s.set({ leadLevel: s.leadLevel === 'easy' ? 'original' : 'easy' });
+        else s.set({ rhythmLevel: s.rhythmLevel === 'easy' ? 'original' : 'easy' });
+      }
       else if (k === 's' || k === 'S') cycleStrum();
       else if (k === '1') s.set({ muteChords: !s.muteChords });
       else if (k === '2') s.set({ muteMelody: !s.muteMelody });
       else if (k === 'f' || k === 'F') fullscreen();
-      else if (k === 'p' || k === 'P') s.set({ leadInstrument: piano ? 'guitar' : 'piano' });
+      else if (k === 'p' || k === 'P') {
+        if (e.shiftKey) s.set({ rhythmInstrument: rhythmPiano ? 'guitar' : 'piano' });
+        else s.set({ leadInstrument: leadPiano ? 'guitar' : 'piano' });
+      }
       else if (k === 'c' || k === 'C') setPanel((p) => (p === 'chords' ? null : 'chords'));
       else if (k === '?' || k === 'h') setPanel((p) => (p === 'help' ? null : 'help'));
       else if (k === 'Escape') setPanel(null);
@@ -233,7 +248,7 @@ function Player({ song }: { song: Song }) {
   const tempo = Math.round(song.bpm * s.speed);
 
   return (
-    <div className="player">
+    <div className={`player${rhythmPiano && leadPiano ? ' both-piano' : ''}`}>
       <header className="player-head">
         <button className="btn ghost" onClick={() => go({ name: 'library' })} title="Back to songs">←</button>
         <div className="song-title">
@@ -254,11 +269,7 @@ function Player({ song }: { song: Song }) {
           <span className="stat"><b>{tempo}</b><small>bpm · {Math.round(s.speed * 100)}%</small></span>
         </div>
         <div className="head-tools">
-          <button
-            className={`btn${piano ? ' on' : ''}`}
-            onClick={() => s.set({ leadInstrument: piano ? 'guitar' : 'piano' })}
-            title="Lead part on piano (USB keyboard) or guitar tab (P)"
-          >{piano ? '🎸 tab' : '🎹 piano'}</button>
+          <button className="btn ghost" onClick={() => go({ name: 'sheet', id: song.id })} title="This song as printable sheet music">📄 sheet</button>
           <button className="btn chords-btn" onClick={() => setPanel('chords')} title="All chords in this song (C)">🎸 chords</button>
           <button className="btn ghost" onClick={() => go({ name: 'drill', chords: arr.uniqueChords.slice(0, 2) })} title="Chord change drill">drill</button>
           <button className="btn ghost" onClick={() => go({ name: 'edit', id: song.id })}>edit</button>
@@ -268,29 +279,35 @@ function Player({ song }: { song: Song }) {
         </div>
       </header>
 
-      <ChordLane
-        arr={arr}
-        resolved={resolved}
-        strums={strums}
-        beat={pos.beat}
-        playing={pos.playing}
-        playerName={s.chordPlayerName}
-        capoLabel={herCapoLabel}
-      />
+      {rhythmPiano ? (
+        <PianoLane notes={rhythmPianoNotes} beatsPerBar={bpb} bpm={song.bpm * s.speed} playerName={s.chordPlayerName} role="rhythm" shared={leadPiano} />
+      ) : (
+        <ChordLane
+          arr={arr}
+          resolved={resolved}
+          strums={strums}
+          beat={pos.beat}
+          playing={pos.playing}
+          playerName={s.chordPlayerName}
+          capoLabel={herCapoLabel}
+          controls={<PartControls role="rhythm" />}
+        />
+      )}
 
-      {piano ? (
-        <PianoLane notes={pianoNotes} beatsPerBar={bpb} bpm={song.bpm * s.speed} playerName={s.melodyPlayerName} />
+      {leadPiano ? (
+        <PianoLane notes={leadPianoNotes} beatsPerBar={bpb} bpm={song.bpm * s.speed} playerName={s.melodyPlayerName} role="lead" shared={rhythmPiano} />
       ) : (
       <section className="lane melody-lane">
         <header className="lane-head">
           <span className="lane-who melody">{s.melodyPlayerName}</span>
           <span className="lane-what">melody</span>
+          <PartControls role="lead" sameNote={!song.originalTab?.trim()} />
           {!noCapo && song.capo > 0 && <span className="pill">capo on fret {song.capo}</span>}
           {noCapo && herCapo > 0 && <span className="pill">no capo · song moved down {herCapo} so the shapes stay easy</span>}
-          {arr.melody.length === 0 && <span className="muted">no tab yet — add one in the editor</span>}
+          {leadArr.melody.length === 0 && <span className="muted">no tab yet — add one in the editor</span>}
         </header>
         <Timeline
-          arr={arr}
+          arr={leadArr}
           chordLabel={chordLabel}
           zoom={s.zoom}
           stringGap={s.tabSize}
@@ -327,16 +344,15 @@ function Player({ song }: { song: Song }) {
         </div>
         <div className="group">
           <button className={`btn${s.metronome ? ' on' : ''}`} onClick={() => s.set({ metronome: !s.metronome })} title="Metronome (M)">♩ click</button>
-          <button className={`btn${s.easyChords ? ' on' : ''}`} onClick={() => s.set({ easyChords: !s.easyChords })} title="Easy chord shapes (E)">easy</button>
-          <button className="btn" onClick={cycleStrum} title="Strum mode (S)">↓ {STRUM_LABEL[s.strumMode]}</button>
+          {!rhythmPiano && <button className="btn" onClick={cycleStrum} title="Strum mode (S)">↓ {STRUM_LABEL[s.strumMode]}</button>}
           <button className={`btn${s.muteChords ? ' off' : ''}`} onClick={() => s.set({ muteChords: !s.muteChords })} title="Mute chord synth (1)">
-            {s.muteChords ? '🔇' : '🔊'} chords
+            {s.muteChords ? '🔇' : '🔊'} {s.chordPlayerName.toLowerCase()}
           </button>
           <button className={`btn${s.muteMelody ? ' off' : ''}`} onClick={() => s.set({ muteMelody: !s.muteMelody })} title="Mute melody synth (2)">
-            {s.muteMelody ? '🔇' : '🔊'} {piano ? 'my hand' : 'melody'}
+            {s.muteMelody ? '🔇' : '🔊'} {s.melodyPlayerName.toLowerCase()}
           </button>
         </div>
-        <div className="group">
+        {!rhythmPiano && <div className="group">
           <label className="capo-select" title="No capo at home? Untick it: the whole song moves down instead and the chord shapes stay the same">
             <input type="checkbox" checked={s.haveCapo} onChange={(e) => s.set({ haveCapo: e.target.checked })} />
             we have a capo
@@ -351,7 +367,7 @@ function Player({ song }: { song: Song }) {
               {Array.from({ length: 8 }, (_, i) => <option key={i} value={i}>{i}</option>)}
             </select>
           </label>
-        </div>
+        </div>}
       </footer>
 
       {pos.countIn > 0 && <div className="countin">{pos.countIn}</div>}
@@ -366,7 +382,7 @@ function HelpPanel({ onClose }: { onClose: () => void }) {
   const keys: [string, string][] = [
     ['Space', 'play / pause'], ['← →', 'previous / next bar'], ['Shift + ← →', 'previous / next section'],
     ['↑ ↓', 'speed ±5%'], ['Home / 0', 'back to start (or loop start)'], ['L', 'loop current section'],
-    ['[  ]', 'loop from bar A to bar B'], ['C', 'all chords in this song'], ['P', 'lead on piano / guitar tab'], ['M', 'metronome'], ['E', 'easy chord shapes'], ['S', 'strum mode'],
+    ['[  ]', 'loop from bar A to bar B'], ['C', 'all chords in this song'], ['P / Shift+P', 'lead / rhythm: piano or guitar'], ['M', 'metronome'], ['E / Shift+E', 'rhythm / lead: easy or original'], ['S', 'strum mode'],
     ['1 / 2', 'mute chord / melody synth'], ['F', 'fullscreen'], ['Esc', 'close panel'],
   ];
   return (

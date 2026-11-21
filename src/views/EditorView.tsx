@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'rea
 import { SONG_DEFAULTS, type Song } from '../../shared/types';
 import { api, type ImportResult } from '../api';
 import { ImportSheetDialog } from '../components/ImportSheetDialog';
-import type { SongFromSheet } from '../import/sheet';
+import { guitarFromPiano, type SongFromSheet } from '../import/sheet';
 import { buildArrangement } from '../music/arrangement';
 import { parseTab } from '../music/tabParser';
 import { detectChordChart } from '../music/detectChords';
@@ -36,7 +36,7 @@ function Editor({ initial }: { initial: Omit<Song, 'id'> & { id?: string } }) {
   const [song, setSong] = useState(initial);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const easy = useSettings((s) => s.easyChords);
+  const easy = useSettings((s) => s.rhythmLevel === 'easy');
   const zoom = useSettings((s) => s.zoom);
 
   const patch = (p: Partial<Song>) => { setSong((s) => ({ ...s, ...p })); setDirty(true); };
@@ -131,13 +131,18 @@ function Editor({ initial }: { initial: Omit<Song, 'id'> & { id?: string } }) {
         piano: s.piano,
         bpm: s.bpm,
         beatsPerBar: s.beatsPerBar,
-        ...(replaceGuitar ? { tab: s.tab, chordChart: s.chordChart, tabGrid: s.tabGrid, capo: 0, melodyStartBar: 1, originalTab: undefined } : {}),
+        ...(replaceGuitar ? { tab: s.tab, chordChart: s.chordChart, tabGrid: s.tabGrid, capo: 0, melodyStartBar: 1, originalTab: s.originalTab } : {}),
         notes: `Piano part imported from ${s.piano.source}.${replaceGuitar ? ' Guitar lead and chords were made from it.' : ''}`,
       });
       setStatus(`Sheet music imported ✓ ${s.piano.notes.length} piano notes`);
     } catch (e) {
       setStatus(`Import failed: ${(e as Error).message}`);
     }
+  };
+  const rebuildGuitar = async () => {
+    if (!song.piano) return;
+    await persist({ ...song, ...guitarFromPiano(song.piano.notes, song.beatsPerBar) });
+    setStatus('Guitar tab and chords rebuilt from the piano part ✓');
   };
   const removePiano = async () => {
     await persist({ ...song, piano: undefined });
@@ -211,13 +216,21 @@ function Editor({ initial }: { initial: Omit<Song, 'id'> & { id?: string } }) {
         </label>
         <div className="sheet-row">
           <span className="muted">Or bring in sheet music: MIDI, MusicXML, or a PDF / photos of the score.</span>
-          <button className="btn" onClick={() => setSheetOpen(true)}>🎼 Import sheet music</button>
+          <span className="row-gap-inline">
+            {song.id && (song.tab.trim() || song.piano) && (
+              <a className="btn ghost" href={`#/sheet/${encodeURIComponent(song.id)}`} title="Show this song as piano sheet music or guitar notation + tab; print or download">📄 View as sheet music</a>
+            )}
+            <button className="btn" onClick={() => setSheetOpen(true)}>🎼 Import sheet music</button>
+          </span>
         </div>
         {song.piano && (
           <div className="sheet-row piano-info">
             <span>🎹 <b>Piano part</b> from {song.piano.source} · {song.piano.notes.length} notes
               ({song.piano.notes.filter((n) => n.hand === 'right').length} right hand, {song.piano.notes.filter((n) => n.hand === 'left').length} left)</span>
-            <button className="btn ghost small" onClick={() => void removePiano()}>Remove piano part</button>
+            <span className="row-gap-inline">
+              <button className="btn small" onClick={() => void rebuildGuitar()} title="Replace the guitar lead tab (easy + full) and the chord chart with ones made from the piano part">🎸 Rebuild guitar tab + chords from it</button>
+              <button className="btn ghost small" onClick={() => void removePiano()}>Remove piano part</button>
+            </span>
           </div>
         )}
       </section>

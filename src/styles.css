@@ -332,3 +332,28 @@ details.help pre { background: var(--panel); padding: 0.8rem; border-radius: 8px
 .sheet-import-foot { display: flex; justify-content: flex-end; margin-top: 0.6rem; }
 .sheet-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.8rem; flex-wrap: wrap; }
 .piano-info { padding-top: 0.8rem; border-top: 1px solid var(--line); }
+
+/* ---------------------------------------------------------------- per-part instrument / level */
+.part-controls { display: inline-flex; gap: 0.4rem; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 99px; overflow: hidden; }
+.seg-btn { background: transparent; color: var(--muted); border: 0; padding: 0.3em 0.8em; font: inherit; font-size: 0.9rem; cursor: pointer; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+.seg-btn.active { background: var(--text); color: var(--bg); font-weight: 700; }
+.seg-btn:not(.active):hover { color: var(--text); }
+.midi-input { font: inherit; font-size: 0.85rem; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 0.2em 0.4em; }
+/* Rhythm on piano fills the top slot; with two pianos the lanes share the height. */
+.piano-lane.rhythm-piano { height: auto; min-height: 0; }
+.both-piano .melody-lane.piano-lane { height: 44vh; }
+
+/* ---------------------------------------------------------------- sheet music page */
+.sheet-page { max-width: 1400px; }
+.sheet-page .actions { flex-wrap: wrap; }
+.sheet-paper { background: #fff; color: #000; border-radius: 10px; padding: 1rem; min-height: 200px; }
+
+@media print {
+  body { background: #fff !important; }
+  .no-print, .overlay { display: none !important; }
+  .sheet-page { padding: 0; max-width: none; }
+  .sheet-paper { padding: 0; border-radius: 0; }
+}
+.row-gap-inline { display: inline-flex; gap: 0.5rem; flex-wrap: wrap; }

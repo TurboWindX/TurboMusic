@@ -2,12 +2,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { StrumMode } from '../music/arrangement';
-import type { HandChoice, LeftStyle } from '../music/piano';
 import type { PracticeMode } from '../music/practice';
+
+export type Instrument = 'guitar' | 'piano';
+/** easy = simplified for learning; original = as written in the source. */
+export type Level = 'easy' | 'original';
+export type Role = 'rhythm' | 'lead';
 
 export interface Settings {
   speed: number; // 0.4 - 1.2
-  easyChords: boolean;
   strumMode: StrumMode;
   /** Per-song extra capo for the chord player (shapes transposed down, sound unchanged). */
   chordCapos: Record<string, number>;
@@ -27,10 +30,17 @@ export interface Settings {
   zoom: number;
   chordPlayerName: string;
   melodyPlayerName: string;
-  /** What the lead player reads: guitar tab or piano (falling notes + keyboard). */
-  leadInstrument: 'guitar' | 'piano';
-  pianoHands: HandChoice;
-  pianoLeft: LeftStyle;
+
+  // Each player picks an instrument and a level for their part.
+  rhythmInstrument: Instrument;
+  rhythmLevel: Level;
+  leadInstrument: Instrument;
+  leadLevel: Level;
+  /** Lead on piano also plays the left hand (one person playing the whole piano part). */
+  leadBothHands: boolean;
+  /** Easy piano chords: just the root note, or a simple 3-note chord. */
+  pianoEasyChords: 'root' | 'triad';
+
   pianoPractice: PracticeMode;
   /** Accept the right note in any octave (small keyboards, beginners). */
   pianoAnyOctave: boolean;
@@ -39,6 +49,9 @@ export interface Settings {
   volKeys: number;
   /** Px per beat in the falling-notes view. */
   pianoZoom: number;
+  /** With two piano parts on screen: which MIDI keyboard each one listens to ('' = any). */
+  midiInputRhythm: string;
+  midiInputLead: string;
   set: (patch: Partial<Settings>) => void;
 }
 
@@ -46,7 +59,6 @@ export const useSettings = create<Settings>()(
   persist(
     (set) => ({
       speed: 0.75,
-      easyChords: true,
       strumMode: 'beats',
       chordCapos: {},
       haveCapo: true,
@@ -62,25 +74,45 @@ export const useSettings = create<Settings>()(
       tabSize: 52,
       chordPlayerName: 'Rhythm',
       melodyPlayerName: 'Lead',
+      rhythmInstrument: 'guitar',
+      rhythmLevel: 'easy',
       leadInstrument: 'guitar',
-      pianoHands: 'right',
-      pianoLeft: 'triad',
+      leadLevel: 'easy',
+      leadBothHands: false,
+      pianoEasyChords: 'triad',
       pianoPractice: 'wait',
       pianoAnyOctave: true,
       midiSound: true,
       volKeys: 0.8,
       pianoZoom: 120,
+      midiInputRhythm: '',
+      midiInputLead: '',
       set: (patch) => set(patch),
     }),
     {
       name: 'turbomusic.settings',
-      version: 2,
-      // v2: per-song capo became "auto unless chosen" — clear old fixed choices so easy mode can pick.
+      version: 3,
       migrate: (state, version) => {
-        const st = (state ?? {}) as Partial<Settings>;
+        const st = (state ?? {}) as Partial<Settings> & { easyChords?: boolean; pianoHands?: string; pianoLeft?: string };
+        // v2: per-song capo became "auto unless chosen" — clear old fixed choices so easy mode can pick.
         if (version < 2) st.chordCapos = {};
+        // v3: one "easy" switch became a level per part; piano hands became "lead plays both hands".
+        if (version < 3) {
+          st.rhythmLevel = st.easyChords === false ? 'original' : 'easy';
+          st.leadBothHands = st.pianoHands === 'both';
+          st.pianoEasyChords = st.pianoLeft === 'root' ? 'root' : 'triad';
+          delete st.easyChords;
+          delete st.pianoHands;
+          delete st.pianoLeft;
+        }
         return st as Settings;
       },
     },
   ),
 );
+
+/** Settings keys for a part's instrument / level. */
+export const partKeys = {
+  rhythm: { instrument: 'rhythmInstrument', level: 'rhythmLevel', midi: 'midiInputRhythm' },
+  lead: { instrument: 'leadInstrument', level: 'leadLevel', midi: 'midiInputLead' },
+} as const;

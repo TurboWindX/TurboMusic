@@ -5,9 +5,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { engine, type Position } from '../audio/engine';
 import { midi, useMidi } from '../audio/midi';
-import { isBlack, keyboardRange, noteName, type HandChoice, type PianoNote } from '../music/piano';
+import { isBlack, keyboardRange, noteName, type PianoNote } from '../music/piano';
 import { HIT, MISS, PracticeTracker, type PracticeMode } from '../music/practice';
-import { useSettings } from '../state/settings';
+import { partKeys, useSettings, type Role } from '../state/settings';
+import { PartControls } from './PartControls';
 import { useFrame } from './hooks';
 
 interface Props {
@@ -16,6 +17,9 @@ interface Props {
   /** Effective tempo (song bpm x speed), for timing tolerance. */
   bpm: number;
   playerName: string;
+  role: Role;
+  /** Both players are on piano: offer to tie each lane to its own MIDI keyboard. */
+  shared?: boolean;
 }
 
 const COLORS = {
@@ -30,14 +34,19 @@ const COLORS = {
 };
 const TIMING_WINDOW_S = 0.2;
 
-const HANDS: [HandChoice, string][] = [['right', 'right hand'], ['left', 'left hand'], ['both', 'both hands']];
+/**
+ * Lanes currently holding the song in wait mode. With two piano players, both get asked
+ * at the same moment, and the song only carries on once nobody is waiting any more.
+ */
+const holding = new Set<object>();
+
 const MODES: [PracticeMode, string, string][] = [
   ['wait', 'wait for me', 'The song stops at each note until you play it'],
   ['score', 'score', 'The song keeps going; you get a hit for each note played in time'],
   ['watch', 'just watch', 'No checking, just the falling notes'],
 ];
 
-export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
+export function PianoLane({ notes, beatsPerBar, bpm, playerName, role, shared }: Props) {
   const s = useSettings();
   const midiState = useMidi();
   const wrap = useRef<HTMLDivElement>(null);
@@ -45,16 +54,14 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
   const [waitingFor, setWaitingFor] = useState<number[] | null>(null);
   const [score, setScore] = useState({ hits: 0, misses: 0, wrong: 0, streak: 0, best: 0, acc: null as number | null });
 
-  const shown = useMemo(
-    () => (s.pianoHands === 'both' ? notes : notes.filter((n) => n.hand === s.pianoHands)),
-    [notes, s.pianoHands],
-  );
-  const range = useMemo(() => keyboardRange(shown), [shown]);
+  const inputKey = partKeys[role].midi;
+  const input = shared ? s[inputKey] : '';
+  const range = useMemo(() => keyboardRange(notes), [notes]);
   const tracker = useMemo(() => {
-    const t = new PracticeTracker(shown, s.pianoAnyOctave);
+    const t = new PracticeTracker(notes, s.pianoAnyOctave);
     t.rewind(engine.getPosition().beat);
     return t;
-  }, [shown, s.pianoAnyOctave]);
+  }, [notes, s.pianoAnyOctave]);
 
   /** Left-hand notes that start a new chord get its name drawn next to them. */
   const labelAt = useMemo(() => {
@@ -75,10 +82,13 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
   live.current.tracker = tracker;
   live.current.mode = s.pianoPractice;
   live.current.tolBeats = tolBeats;
+  const inputRef = useRef(input);
+  inputRef.current = input;
 
   // Leaving wait mode (or swapping hands) cancels any wait in progress and starts a fresh score.
   useEffect(() => {
     live.current.waiting = false;
+    holding.delete(live.current);
     setWaitingFor(null);
     tracker.resetScore();
     tracker.rewind(engine.getPosition().beat);
@@ -87,7 +97,9 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
   const resume = async (fromBeat: number) => {
     const L = live.current;
     L.waiting = false;
+    holding.delete(L);
     setWaitingFor(null);
+    if (holding.size) return; // the other player hasn't played their part yet
     L.resuming = true;
     engine.countInEnabled = false;
     try {
@@ -103,7 +115,10 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
   useEffect(() => {
     void midi.connect();
     const offNote = midi.onNote((e) => {
-      if (e.type === 'off') { engine.keyUp(e.midi); return; }
+      // Two piano players: each lane only listens to its own keyboard (on-screen keys always count).
+      const mine = !inputRef.current || e.device === inputRef.current || e.device === 'screen';
+      if (e.type === 'off') { if (mine) engine.keyUp(e.midi); return; }
+      if (!mine) return;
       const st = useSettings.getState();
       if (st.midiSound) { engine.keysVolume = st.volKeys; void engine.keyDown(e.midi, e.velocity); }
       const L = live.current;
@@ -114,7 +129,8 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
       }
     });
     const offPedal = midi.onPedal((down) => engine.setSustain(down));
-    return () => { offNote(); offPedal(); };
+    const me = live.current;
+    return () => { offNote(); offPedal(); holding.delete(me); };
   }, []);
 
   // --- per-frame: follow the playhead, pause for wait mode, draw
@@ -139,12 +155,13 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
     const L = live.current;
     const t = L.tracker;
     if (!pos.countIn && !L.resuming) t.sync(pos.beat, L.mode, L.tolBeats);
-    if (L.mode === 'wait' && pos.playing && !pos.countIn && !L.resuming) {
+    // Stop at this lane's next note while playing, or join a wait another lane started at the same spot.
+    if (L.mode === 'wait' && !L.waiting && !pos.countIn && !L.resuming && (pos.playing || holding.size)) {
       const g = t.target();
-      if (g && pos.beat >= g.beat - 0.005) {
-        engine.pause();
-        engine.seek(g.beat);
+      if (g && pos.beat >= g.beat - 0.005 && (pos.playing || Math.abs(pos.beat - g.beat) < 0.01)) {
+        if (pos.playing) { engine.pause(); engine.seek(g.beat); }
         L.waiting = true;
+        holding.add(L);
         setWaitingFor(g.idx.map((i) => t.notes[i].midi));
       }
     }
@@ -309,26 +326,29 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
     const m = keyAt(e.clientX - rect.left, e.clientY - rect.top);
     if (m === null) return;
     pointerKey.current = m;
-    midi.emit({ type: 'on', midi: m, velocity: 0.7 });
+    midi.emit({ type: 'on', midi: m, velocity: 0.7, device: 'screen' });
   };
   const onPointerUp = () => {
     if (pointerKey.current === null) return;
-    midi.emit({ type: 'off', midi: pointerKey.current, velocity: 0 });
+    midi.emit({ type: 'off', midi: pointerKey.current, velocity: 0, device: 'screen' });
     pointerKey.current = null;
   };
 
   const status = midiStatusText(midiState.status, midiState.devices);
 
   return (
-    <section className="lane melody-lane piano-lane">
+    <section className={`lane piano-lane ${role === 'lead' ? 'melody-lane' : 'chord-lane rhythm-piano'}`}>
       <header className="lane-head">
-        <span className="lane-who melody">{playerName}</span>
-        <span className="lane-what">piano</span>
-        <div className="chip-row">
-          {HANDS.map(([v, label]) => (
-            <button key={v} className={`chip${s.pianoHands === v ? ' active' : ''}`} onClick={() => s.set({ pianoHands: v })}>{label}</button>
-          ))}
-        </div>
+        <span className={`lane-who ${role === 'lead' ? 'melody' : 'chords'}`}>{playerName}</span>
+        <span className="lane-what">{role === 'lead' ? 'melody' : 'chords'}</span>
+        <PartControls role={role} />
+        {role === 'lead' && (
+          <button
+            className={`chip${s.leadBothHands ? ' active' : ''}`}
+            onClick={() => s.set({ leadBothHands: !s.leadBothHands })}
+            title="Also play the left hand (chords): one person plays the whole piano part"
+          >+ left hand</button>
+        )}
         <div className="chip-row">
           {MODES.map(([v, label, title]) => (
             <button key={v} title={title} className={`chip${s.pianoPractice === v ? ' active' : ''}`} onClick={() => s.set({ pianoPractice: v })}>{label}</button>
@@ -348,6 +368,12 @@ export function PianoLane({ notes, beatsPerBar, bpm, playerName }: Props) {
             {score.best > 4 && <> · best streak <b>{score.best}</b></>}
             <button className="btn ghost small" onClick={() => { tracker.resetScore(); tracker.rewind(engine.getPosition().beat); }} title="Reset score">↺</button>
           </span>
+        )}
+        {shared && midiState.devices.length > 1 && (
+          <select className="midi-input" value={input} onChange={(e) => s.set({ [inputKey]: e.target.value })} title="Which keyboard this player uses">
+            <option value="">any keyboard</option>
+            {midiState.devices.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
         )}
         <span className={`pill midi-pill ${status.cls}`} title={midiState.error ?? status.title}>
           🎹 {status.text}

@@ -7,7 +7,7 @@
  */
 import type { PianoPart, StoredPianoNote } from '../../shared/types';
 import { detectChordChartFromPitches } from '../music/detectChords';
-import { fingerLine } from '../music/refret';
+import { fingerChords, fingerLine } from '../music/refret';
 
 export interface RawNote {
   /** Quarter-note beats from the start. */
@@ -108,6 +108,8 @@ export interface SongFromSheet {
   piano: PianoPart;
   /** Guitar lead (tab) and chord chart, derived from the piano part. */
   tab: string;
+  /** Full right hand as guitar tab (the lead's "original" level). */
+  originalTab: string;
   chordChart: string;
   tabGrid: number;
   capo: number;
@@ -118,15 +120,23 @@ export function sheetToSong(sheet: SheetImport, roles: Record<string, PartRole>,
   const bpb = sheet.beatsPerBar;
   const notes = toPianoNotes(sheet, roles);
   if (!notes.length) throw new Error('No notes selected: pick at least one part');
-  const end = Math.max(...notes.map((n) => n.beat + n.duration));
-  const totalBars = Math.max(1, Math.ceil(end / bpb - 1e-6));
   return {
     title: sheet.title?.trim() || source.replace(/\.[^.]+$/, ''),
     artist: sheet.composer,
     bpm: Math.max(20, Math.min(300, Math.round(sheet.bpm))),
     beatsPerBar: bpb,
     piano: { source, notes },
+    ...guitarFromPiano(notes, bpb),
+  };
+}
+
+/** Guitar parts made from piano notes: easy melody tab, full tab, chord chart. */
+export function guitarFromPiano(notes: StoredPianoNote[], bpb: number) {
+  const end = Math.max(bpb, ...notes.map((n) => n.beat + n.duration));
+  const totalBars = Math.max(1, Math.ceil(end / bpb - 1e-6));
+  return {
     tab: melodyTab(notes, totalBars, bpb),
+    originalTab: melodyTab(notes, totalBars, bpb, true),
     chordChart: detectChordChartFromPitches(notes, totalBars, bpb),
     tabGrid: 2,
     capo: 0,
@@ -138,7 +148,7 @@ export function sheetToSong(sheet: SheetImport, roles: Record<string, PartRole>,
  * Guitar tab of the right hand's top line, on an 8th-note grid
  * (3 characters per slot so two-digit frets never touch the next note).
  */
-export function melodyTab(notes: StoredPianoNote[], totalBars: number, bpb: number): string {
+export function melodyTab(notes: StoredPianoNote[], totalBars: number, bpb: number, full = false): string {
   const slotsPerBar = bpb * 2;
   const right = notes.filter((n) => n.hand === 'right');
   const source = right.length ? right : notes;
@@ -155,14 +165,22 @@ export function melodyTab(notes: StoredPianoNote[], totalBars: number, bpb: numb
   const median = sorted[sorted.length >> 1] ?? 64;
   const octaves = Math.round((64 - median) / 12);
   pitches = pitches.map((p) => p + octaves * 12);
-  const fingered = fingerLine(pitches);
-
   const cells = Array.from({ length: 6 }, () => Array.from({ length: totalBars * slotsPerBar }, () => '---'));
-  slots.forEach((slot, i) => {
-    if (slot >= totalBars * slotsPerBar) return;
-    const { string, fret } = fingered[i];
-    cells[5 - string][slot] = String(fret).padEnd(3, '-');
-  });
+  const put = (slot: number, string: number, fret: number) => {
+    if (slot < totalBars * slotsPerBar) cells[5 - string][slot] = String(fret).padEnd(3, '-');
+  };
+  if (full) {
+    // Every note of the right hand, chords included, moved by the same octaves as the top line.
+    const groups = new Map<number, number[]>();
+    for (const n of source) {
+      const slot = Math.round(n.beat * 2);
+      groups.set(slot, [...(groups.get(slot) ?? []), n.midi + octaves * 12]);
+    }
+    const keys = [...groups.keys()].sort((a, b) => a - b);
+    fingerChords(keys.map((k) => groups.get(k)!)).forEach((g, i) => g.forEach((p) => put(keys[i], p.string, p.fret)));
+  } else {
+    fingerLine(pitches).forEach((p, i) => put(slots[i], p.string, p.fret));
+  }
   const labels = ['e', 'B', 'G', 'D', 'A', 'E'];
   const blocks: string[] = [];
   for (let b0 = 0; b0 < totalBars; b0 += 4) {

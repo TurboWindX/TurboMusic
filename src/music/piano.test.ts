@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildArrangement } from './arrangement';
-import { buildPianoPart, keyboardRange, leftHandVoicing, type PianoNote } from './piano';
+import { keyboardRange, leftHandVoicing, type PianoNote } from './piano';
+import { pianoLead, pianoRhythm, songPartContext, type PartContext } from './parts';
 import { HIT, MISS, PracticeTracker } from './practice';
 import { SONG_DEFAULTS, type Song } from '../../shared/types';
 
@@ -16,25 +17,56 @@ describe('piano part', () => {
     expect(leftHandVoicing('C', 2, 'root')).toEqual([50]); // capo 2 -> sounds D
   });
 
-  it('builds both hands from the arrangement, re-striking long chords each bar', () => {
-    const arr = buildArrangement(song({
-      beatsPerBar: 4,
-      chordChart: '| C . . . | Am |',
-      tab: ['e|0-------|', 'B|--1-----|', 'G|--------|', 'D|--------|', 'A|--------|', 'E|--------|'].join('\n'),
-      tabGrid: 2,
-    }));
-    const part = buildPianoPart(arr, { melodyShift: 0, chordShift: 0, leftStyle: 'root' });
-    const left = part.filter((n) => n.hand === 'left');
-    expect(left.map((n) => [n.beat, n.midi, n.chord])).toEqual([[0, 48, 'C'], [4, 45, 'Am']]);
-    const right = part.filter((n) => n.hand === 'right').map((n) => n.midi);
-    // high E (64) and C on the B string (60): already around middle C, no octave shift
-    expect(right).toEqual([64, 60]);
+  const ctxFor = (over: Partial<Song>, shift = { melody: 0, chord: 0 }): PartContext => {
+    const c = songPartContext(song(over), buildArrangement);
+    return { ...c, melodyShift: shift.melody, chordShift: shift.chord };
+  };
+  const tab = (rows: string[]) => ['e', 'B', 'G', 'D', 'A', 'E'].map((l, i) => `${l}|${rows[i]}|`).join('\n');
+  const empty = '--------';
+
+  it('rhythm on piano: easy roots or triads re-struck each bar; original full chords', () => {
+    const ctx = ctxFor({ beatsPerBar: 4, chordChart: '| C . . . | Am7 |', tab: '' });
+    expect(pianoRhythm(ctx, 'easy', 'root').map((n) => [n.beat, n.midi, n.chord])).toEqual([[0, 48, 'C'], [4, 45, 'Am7']]);
+    expect(pianoRhythm(ctx, 'easy', 'triad').filter((n) => n.beat === 4).map((n) => n.midi)).toEqual([45, 48, 52]);
+    expect(pianoRhythm(ctx, 'original', 'triad').filter((n) => n.beat === 4).map((n) => n.midi)).toEqual([45, 48, 52, 55]);
   });
 
   it('labels left-hand chords with the sounding name', () => {
-    const arr = buildArrangement(song({ chordChart: '| C |', tab: '' }));
-    const part = buildPianoPart(arr, { melodyShift: 0, chordShift: 2, leftStyle: 'triad' });
-    expect(part[0].chord).toBe('D');
+    const ctx = ctxFor({ chordChart: '| C |', tab: '' }, { melody: 0, chord: 2 });
+    expect(pianoRhythm(ctx, 'easy', 'triad')[0].chord).toBe('D');
+  });
+
+  it('lead on piano: easy keeps the top line, original keeps every note', () => {
+    // E + C together on beat 1, then a D on beat 3.
+    const ctx = ctxFor({ beatsPerBar: 4, chordChart: '| C |', tabGrid: 2, tab: tab(['0-------', '1---3---', empty, empty, empty, empty]) });
+    expect(pianoLead(ctx, 'easy', false, 'triad').map((n) => n.midi)).toEqual([64, 62]);
+    expect(pianoLead(ctx, 'original', false, 'triad').map((n) => n.midi)).toEqual([60, 64, 62]);
+    const both = pianoLead(ctx, 'easy', true, 'root');
+    expect(both.filter((n) => n.hand === 'left').map((n) => n.midi)).toEqual([48]);
+  });
+
+  it('lead original uses the full imported tab when there is one', () => {
+    const ctx = ctxFor({
+      beatsPerBar: 4, tabGrid: 2, chordChart: '',
+      tab: tab(['0-------', empty, empty, empty, empty, empty]),
+      originalTab: tab(['0-2-----', empty, empty, empty, empty, empty]),
+    });
+    expect(pianoLead(ctx, 'easy', false, 'triad')).toHaveLength(1);
+    expect(pianoLead(ctx, 'original', false, 'triad')).toHaveLength(2);
+  });
+
+  it('imported piano parts: original left hand as written, easy right hand as one line', () => {
+    const ctx = ctxFor({
+      chordChart: '| C |', tab: '',
+      piano: { source: 'x', notes: [
+        { beat: 0, duration: 1, midi: 72, hand: 'right' }, { beat: 0, duration: 1, midi: 64, hand: 'right' },
+        { beat: 0, duration: 4, midi: 36, hand: 'left' }, { beat: 2, duration: 2, midi: 43, hand: 'left' },
+      ] },
+    });
+    expect(pianoLead(ctx, 'easy', false, 'triad').map((n) => n.midi)).toEqual([72]);
+    expect(pianoLead(ctx, 'original', false, 'triad').map((n) => n.midi)).toEqual([64, 72]);
+    expect(pianoRhythm(ctx, 'original', 'triad').map((n) => [n.beat, n.midi, n.chord])).toEqual([[0, 36, 'C'], [2, 43, 'C']]);
+    expect(pianoRhythm(ctx, 'easy', 'root').map((n) => n.midi)).toEqual([48]);
   });
 
   it('snaps the keyboard to whole octaves', () => {
