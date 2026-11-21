@@ -180,6 +180,83 @@ export class AudioEngine {
     return { beat: countIn ? seg.beat : Math.max(0, beat), playing: true, countIn };
   }
 
+  // ------------------------------------------------- live keys (MIDI keyboard)
+
+  private keysBus: GainNode | null = null;
+  private voices = new Map<number, { stop: (t: number) => void }>();
+  private sustained = new Set<number>();
+  private sustain = false;
+  keysVolume = 0.8;
+
+  /** Sound for a key pressed on a MIDI keyboard (silent controllers need it; digital pianos don't). */
+  async keyDown(midi: number, velocity: number) {
+    const ctx = await this.ensure();
+    if (!this.keysBus) {
+      this.keysBus = ctx.createGain();
+      this.keysBus.connect(this.master);
+    }
+    this.keysBus.gain.value = this.keysVolume;
+    this.voices.get(midi)?.stop(ctx.currentTime);
+    this.sustained.delete(midi);
+    this.voices.set(midi, this.pianoVoice(ctx, midi, velocity));
+  }
+
+  keyUp(midi: number) {
+    if (this.sustain) { this.sustained.add(midi); return; }
+    this.release(midi);
+  }
+
+  setSustain(down: boolean) {
+    this.sustain = down;
+    if (!down) { this.sustained.forEach((m) => this.release(m)); this.sustained.clear(); }
+  }
+
+  private release(midi: number) {
+    const v = this.voices.get(midi);
+    if (!v || !this.ctx) return;
+    v.stop(this.ctx.currentTime);
+    this.voices.delete(midi);
+  }
+
+  /** Small electric-piano-ish voice: two partials, fast attack, natural decay, short release. */
+  private pianoVoice(ctx: AudioContext, midi: number, velocity: number) {
+    const t = ctx.currentTime;
+    const f = midiToFreq(midi);
+    const vel = 0.15 + 0.5 * velocity;
+    const out = ctx.createGain();
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(Math.min(12000, f * (4 + 8 * velocity)), t);
+    lp.frequency.exponentialRampToValueAtTime(Math.max(400, f * 2), t + 1.5);
+    out.gain.setValueAtTime(0, t);
+    out.gain.linearRampToValueAtTime(vel, t + 0.005);
+    const decay = Math.max(1.2, 5 - (midi - 48) * 0.06);
+    out.gain.setTargetAtTime(vel * 0.25, t + 0.005, decay / 4);
+    const oscs = [
+      { type: 'triangle' as OscillatorType, mult: 1, gain: 1 },
+      { type: 'sine' as OscillatorType, mult: 2, gain: 0.35 },
+      { type: 'sine' as OscillatorType, mult: 3, gain: 0.08 },
+    ].map(({ type, mult, gain }) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f * mult;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      o.connect(g).connect(lp);
+      o.start(t);
+      return o;
+    });
+    lp.connect(out).connect(this.keysBus!);
+    return {
+      stop: (at: number) => {
+        out.gain.cancelScheduledValues(at);
+        out.gain.setValueAtTime(out.gain.value, at);
+        out.gain.setTargetAtTime(0, at, 0.08);
+        oscs.forEach((o) => o.stop(at + 0.6));
+      },
+    };
+  }
+
   // ---------------------------------------------------------------- internals
 
   private stopTimer() {

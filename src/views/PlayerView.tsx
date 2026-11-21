@@ -14,6 +14,8 @@ import { useQuantizedPosition } from '../components/hooks';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { ChordSheet } from '../components/ChordSheet';
 import { isTyping } from '../components/keys';
+import { PianoLane } from '../components/PianoLane';
+import { buildPianoPart } from '../music/piano';
 
 const STRUM_LABEL: Record<StrumMode, string> = { once: 'Once / chord', beats: 'Every beat', pattern: 'Song pattern' };
 const STRUM_ORDER: StrumMode[] = ['once', 'beats', 'pattern'];
@@ -59,6 +61,17 @@ function Player({ song }: { song: Song }) {
     return m;
   }, [arr, s.easyChords, chordCapo]);
   const chordLabel = useCallback((c: string) => resolved.get(c)?.display ?? c, [resolved]);
+
+  const piano = s.leadInstrument === 'piano';
+  /** Piano part in sounding pitch, matching what the engine plays for the guitars. */
+  const pianoNotes = useMemo(
+    () => (piano ? buildPianoPart(arr, {
+      melodyShift: noCapo ? 0 : song.capo,
+      chordShift: noCapo ? -chordCapo : song.capo,
+      leftStyle: s.pianoLeft,
+    }) : []),
+    [piano, arr, noCapo, chordCapo, song.capo, s.pianoLeft],
+  );
 
   const strums = useMemo(() => buildStrums(arr, s.strumMode, song.strumPattern), [arr, s.strumMode, song.strumPattern]);
 
@@ -176,6 +189,7 @@ function Player({ song }: { song: Song }) {
       else if (k === '1') s.set({ muteChords: !s.muteChords });
       else if (k === '2') s.set({ muteMelody: !s.muteMelody });
       else if (k === 'f' || k === 'F') fullscreen();
+      else if (k === 'p' || k === 'P') s.set({ leadInstrument: piano ? 'guitar' : 'piano' });
       else if (k === 'c' || k === 'C') setPanel((p) => (p === 'chords' ? null : 'chords'));
       else if (k === '?' || k === 'h') setPanel((p) => (p === 'help' ? null : 'help'));
       else if (k === 'Escape') setPanel(null);
@@ -222,6 +236,11 @@ function Player({ song }: { song: Song }) {
           <span className="stat"><b>{tempo}</b><small>bpm · {Math.round(s.speed * 100)}%</small></span>
         </div>
         <div className="head-tools">
+          <button
+            className={`btn${piano ? ' on' : ''}`}
+            onClick={() => s.set({ leadInstrument: piano ? 'guitar' : 'piano' })}
+            title="Lead part on piano (USB keyboard) or guitar tab (P)"
+          >{piano ? '🎸 tab' : '🎹 piano'}</button>
           <button className="btn chords-btn" onClick={() => setPanel('chords')} title="All chords in this song (C)">🎸 chords</button>
           <button className="btn ghost" onClick={() => go({ name: 'drill', chords: arr.uniqueChords.slice(0, 2) })} title="Chord change drill">drill</button>
           <button className="btn ghost" onClick={() => go({ name: 'edit', id: song.id })}>edit</button>
@@ -241,6 +260,9 @@ function Player({ song }: { song: Song }) {
         capoLabel={herCapoLabel}
       />
 
+      {piano ? (
+        <PianoLane notes={pianoNotes} beatsPerBar={bpb} bpm={song.bpm * s.speed} playerName={s.melodyPlayerName} />
+      ) : (
       <section className="lane melody-lane">
         <header className="lane-head">
           <span className="lane-who melody">{s.melodyPlayerName}</span>
@@ -259,6 +281,7 @@ function Player({ song }: { song: Song }) {
           onSeek={(b) => engine.seek(b)}
         />
       </section>
+      )}
 
       <footer className="transport">
         <div className="group">
@@ -325,7 +348,7 @@ function HelpPanel({ onClose }: { onClose: () => void }) {
   const keys: [string, string][] = [
     ['Space', 'play / pause'], ['← →', 'previous / next bar'], ['Shift + ← →', 'previous / next section'],
     ['↑ ↓', 'speed ±5%'], ['Home / 0', 'back to start (or loop start)'], ['L', 'loop current section'],
-    ['[  ]', 'loop from bar A to bar B'], ['C', 'all chords in this song'], ['M', 'metronome'], ['E', 'easy chord shapes'], ['S', 'strum mode'],
+    ['[  ]', 'loop from bar A to bar B'], ['C', 'all chords in this song'], ['P', 'lead on piano / guitar tab'], ['M', 'metronome'], ['E', 'easy chord shapes'], ['S', 'strum mode'],
     ['1 / 2', 'mute chord / melody synth'], ['F', 'fullscreen'], ['Esc', 'close panel'],
   ];
   return (

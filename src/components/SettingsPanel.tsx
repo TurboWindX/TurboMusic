@@ -41,6 +41,33 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             <span>Count-in bar before playing</span>
           </label>
         </div>
+        <h3>Piano / MIDI keyboard</h3>
+        <div className="form-grid">
+          <label className="field">
+            <span>Left hand plays</span>
+            <select value={s.pianoLeft} onChange={(e) => s.set({ pianoLeft: e.target.value as typeof s.pianoLeft })}>
+              <option value="root">just the root note (easiest)</option>
+              <option value="triad">simple 3-note chords</option>
+              <option value="full">full chords (7ths etc.)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Falling notes speed ({s.pianoZoom}px / beat)</span>
+            <input type="range" min={60} max={240} step={10} value={s.pianoZoom} onChange={(e) => s.set({ pianoZoom: Number(e.target.value) })} />
+          </label>
+          <label className="field check">
+            <input type="checkbox" checked={s.pianoAnyOctave} onChange={(e) => s.set({ pianoAnyOctave: e.target.checked })} />
+            <span>Right note in any octave counts (handy on small keyboards)</span>
+          </label>
+          <label className="field check">
+            <input type="checkbox" checked={s.midiSound} onChange={(e) => s.set({ midiSound: e.target.checked })} />
+            <span>Play a sound for my keys (turn off if your keyboard has its own speakers)</span>
+          </label>
+          <label className="field">
+            <span>Key sound volume</span>
+            <input type="range" min={0} max={1} step={0.05} value={s.volKeys} onChange={(e) => s.set({ volKeys: Number(e.target.value) })} />
+          </label>
+        </div>
         <button className="btn primary" onClick={onClose}>Done</button>
       </div>
     </div>

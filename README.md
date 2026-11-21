@@ -1,10 +1,12 @@
 # TurboMusic
 
-Learn songs together as a guitar duet. One player follows **chords** (big chord diagrams, strum pattern, "change in 3-2-1" cue), the other follows a scrolling **melody tab**. Both share one clock with count-in, metronome, speed control and looping.
+Learn songs together as a guitar duet. One player follows **chords** (big chord diagrams, strum pattern, "change in 3-2-1" cue), the other follows a scrolling **melody tab**, or plays it on **piano** with a USB keyboard. Both share one clock with count-in, metronome, speed control and looping.
 
-> **Coming soon:** sheet music for other instruments (piano, bass, ukulele and more), so the whole band can play along, not just guitars.
+> **Coming soon:** parts for more instruments (bass, ukulele and more), so the whole band can play along.
 
 ![Player: chord lane on top for the rhythm player, scrolling tab below for the lead](docs/screenshots/player.png)
+
+![Piano lead: notes fall onto the keyboard; wait mode stops until you play the right keys on your USB keyboard](docs/screenshots/piano.png)
 
 <table>
   <tr>
@@ -22,6 +24,20 @@ Learn songs together as a guitar duet. One player follows **chords** (big chord 
 </table>
 
 Screenshots are generated, not hand-made: `npm run screenshots` builds the app, starts a throwaway server with only the demo song (your own songs are never shown), drives headless Chrome through each screen with puppeteer-core and writes `docs/screenshots/*.png`. It finds Chrome/Edge/Chromium automatically; set `CHROME_PATH` if it can't.
+
+## Piano with a USB keyboard
+
+Press <kbd>P</kbd> (or **🎹 piano** in the top bar) and the lead part switches from guitar tab to falling notes over a keyboard. Every song gets a piano part automatically: the **right hand** plays the melody from the tab, the **left hand** plays the chord chart (root notes, simple 3-note chords or full chords, set in ⚙). It's in the same key as the guitars, capo included, so piano + guitar works as a duet.
+
+Plug a MIDI keyboard or digital piano in over USB (or Bluetooth MIDI) and it's picked up automatically, hot-plugging included. The browser asks once for permission to use MIDI devices.
+
+- **wait for me**: the song stops at each note or chord until you play it, then carries on. Best for learning.
+- **score**: the song keeps going; each note played within about 0.2 s counts as a hit, with misses, wrong keys, accuracy and best streak.
+- **just watch**: no checking.
+
+Options in ⚙: accept the right note in any octave (default on, handy on 49/61-key keyboards), play a sound for your keys (turn off if your keyboard has speakers), key volume, falling speed. The sustain pedal works. You can also click the on-screen keys with a mouse.
+
+MIDI needs **Chrome or Edge**, and a page served from `http://localhost` or `https://` (a Cloudflare tunnel is fine; a plain `http://192.168.x.x` LAN address is blocked by the browser).
 
 ## Run
 
@@ -94,10 +110,11 @@ Or put Cloudflare Access in front of it instead.
 ```
 server/index.ts        Express: /api/songs CRUD (JSON files), serves dist/, optional basic auth
 shared/                Song type + demo song (used by server and client)
-src/music/             theory, chord voicings + difficulty/capo advice, chart & tab parsers, arrangement
+src/music/             theory, chord voicings + difficulty/capo advice, chart & tab parsers, arrangement, piano part, practice scoring
 src/audio/engine.ts    Web Audio lookahead scheduler, Karplus-Strong guitar synth, metronome, loop
 src/audio/tuner.ts     mic pitch detection
+src/audio/midi.ts      Web MIDI keyboard input (USB/Bluetooth), sustain pedal
 src/views/             Library, Player, Editor, Drill, Tuner
-src/components/        ChordDiagram (SVG), Timeline (scrolling tab), ChordLane, settings
+src/components/        ChordDiagram (SVG), Timeline (scrolling tab), ChordLane, PianoLane (falling notes), settings
 scripts/screenshots.ts headless-Chrome screenshot generator for this README
 ```

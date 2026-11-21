@@ -110,6 +110,8 @@ async function main() {
 
   try {
     await waitForServer();
+    // MIDI permission so the piano lane shows 'plug in a USB keyboard' rather than 'blocked'.
+    await browser.defaultBrowserContext().overridePermissions(BASE, ['midi', 'midi-sysex']);
     const page = await browser.newPage();
     page.on('pageerror', (err) => console.error('  page error:', err));
     console.log('Taking screenshots:');
@@ -140,6 +142,19 @@ async function main() {
     await sleep(300);
     await shot(page, 'help');
     await page.keyboard.press('Escape');
+
+    // Lead on piano: wait mode stops at the next chord until it's played on the USB keyboard.
+    await page.keyboard.press('p');
+    await page.waitForSelector('.piano-lane');
+    await page.evaluate(() => {
+      const chip = [...document.querySelectorAll<HTMLButtonElement>('.piano-lane .chip')].find((c) => c.textContent === 'both hands');
+      chip?.click();
+    });
+    await page.keyboard.press('Space');
+    await page.waitForSelector('.piano-waiting', { timeout: 20000 });
+    await sleep(500);
+    await shot(page, 'piano');
+    await page.keyboard.press('p');
 
     // Editor
     await open(page, `#/edit/${DEMO}`, 'textarea');

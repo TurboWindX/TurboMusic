@@ -2,6 +2,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { StrumMode } from '../music/arrangement';
+import type { HandChoice, LeftStyle } from '../music/piano';
+import type { PracticeMode } from '../music/practice';
 
 export interface Settings {
   speed: number; // 0.4 - 1.2
@@ -25,6 +27,18 @@ export interface Settings {
   zoom: number;
   chordPlayerName: string;
   melodyPlayerName: string;
+  /** What the lead player reads: guitar tab or piano (falling notes + keyboard). */
+  leadInstrument: 'guitar' | 'piano';
+  pianoHands: HandChoice;
+  pianoLeft: LeftStyle;
+  pianoPractice: PracticeMode;
+  /** Accept the right note in any octave (small keyboards, beginners). */
+  pianoAnyOctave: boolean;
+  /** Play a sound for MIDI keys (turn off for digital pianos with their own speakers). */
+  midiSound: boolean;
+  volKeys: number;
+  /** Px per beat in the falling-notes view. */
+  pianoZoom: number;
   set: (patch: Partial<Settings>) => void;
 }
 
@@ -48,6 +62,14 @@ export const useSettings = create<Settings>()(
       tabSize: 52,
       chordPlayerName: 'Rhythm',
       melodyPlayerName: 'Lead',
+      leadInstrument: 'guitar',
+      pianoHands: 'right',
+      pianoLeft: 'triad',
+      pianoPractice: 'wait',
+      pianoAnyOctave: true,
+      midiSound: true,
+      volKeys: 0.8,
+      pianoZoom: 120,
       set: (patch) => set(patch),
     }),
     {
