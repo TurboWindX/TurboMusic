@@ -1,7 +1,7 @@
 {
   "name": "turbomusic",
   "version": "1.0.0",
-  "description": "Guitar duet trainer for the TV",
+  "description": "Learn songs together as a guitar duet on one shared screen",
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,magenta \"tsx watch server/index.ts\" \"vite\"",
     "build": "tsc -p tsconfig.json --noEmit && vite build",

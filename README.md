@@ -1,6 +1,8 @@
 # TurboMusic
 
-Guitar duet trainer for the TV. One player follows **chords** (big chord diagrams, strum pattern, "change in 3-2-1" cue), the other follows a scrolling **melody tab**. Both share one clock with count-in, metronome, speed control and looping.
+Learn songs together as a guitar duet, on one shared screen: a laptop, monitor or TV, whatever fits your room. One player follows **chords** (big chord diagrams, strum pattern, "change in 3-2-1" cue), the other follows a scrolling **melody tab**. Both share one clock with count-in, metronome, speed control and looping.
+
+> **Coming soon:** sheet music for other instruments (piano, bass, ukulele and more), so the whole band can play along, not just guitars.
 
 ![Player: chord lane on top for the rhythm player, scrolling tab below for the lead](docs/screenshots/player.png)
 
