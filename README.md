@@ -2,6 +2,25 @@
 
 Guitar duet trainer for the TV. One player follows **chords** (big chord diagrams, strum pattern, "change in 3-2-1" cue), the other follows a scrolling **melody tab**. Both share one clock with count-in, metronome, speed control and looping.
 
+![Player: chord lane on top for the rhythm player, scrolling tab below for the lead](docs/screenshots/player.png)
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/chord-sheet.png" alt="Chords to learn: every chord in the song with difficulty and how much of the song it covers"><br><sub><b>Chords to learn</b> (<kbd>C</kbd>): every shape in the song, how hard it is and how much of the song it covers, plus the most common changes to drill.</sub></td>
+    <td width="50%"><img src="docs/screenshots/drill.png" alt="Chord change drill"><br><sub><b>Chord-change drill</b>: switch between two chords in time, with a one-minute-changes counter.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/editor.png" alt="Song editor"><br><sub><b>Editor</b>: import from Ultimate Guitar, let Claude turn it into a duet, live preview.</sub></td>
+    <td><img src="docs/screenshots/tuner.png" alt="Tuner"><br><sub><b>Tuner</b>: mic-based, shows the nearest guitar string.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/help.png" alt="Keyboard shortcuts"><br><sub><b>Keyboard / remote</b> (<kbd>?</kbd>): everything works from a keyboard or TV remote.</sub></td>
+    <td><img src="docs/screenshots/library.png" alt="Song library"><br><sub><b>Library</b>: your songs, import/export as JSON.</sub></td>
+  </tr>
+</table>
+
+Screenshots are generated, not hand-made: `npm run screenshots` builds the app, starts a throwaway server with only the demo song (your own songs are never shown), drives headless Chrome through each screen with puppeteer-core and writes `docs/screenshots/*.png`. It finds Chrome/Edge/Chromium automatically; set `CHROME_PATH` if it can't.
+
 ## Run
 
 ```bash
@@ -78,4 +97,5 @@ src/audio/engine.ts    Web Audio lookahead scheduler, Karplus-Strong guitar synt
 src/audio/tuner.ts     mic pitch detection
 src/views/             Library, Player, Editor, Drill, Tuner
 src/components/        ChordDiagram (SVG), Timeline (scrolling tab), ChordLane, settings
+scripts/screenshots.ts headless-Chrome screenshot generator for this README
 ```
